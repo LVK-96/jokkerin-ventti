@@ -1,10 +1,15 @@
 import { Exercise, Workout } from './types';
+import { startEngine } from './webgpu';
 
-// Helper to resolve asset paths (handles GitHub Pages /timer/ base path)
-const asset = (path: string): string => new URL(path, import.meta.env.BASE_URL).href;
+// Assets
+import workoutUrl from './assets/Workouts/jokkeri_ventti.json?url';
+import longBeepUrl from './assets/long_beep.mp3';
+import almostSoundUrl from './assets/almostSound.mp3';
+import shortBeepUrl from './assets/short_beep.mp3';
+import intermediateSoundUrl from './assets/intermediateSound.mp3';
 
 // Workout configuration
-const WORKOUT_JSON_PATH = asset('Workouts/jokkeri_ventti.json');
+const WORKOUT_JSON_PATH = workoutUrl;
 
 // State
 let exercises: Exercise[] = [];
@@ -20,11 +25,12 @@ let workoutTimer = 0;
 let pauseState = true;
 
 // Audio elements
-const startSound = new Audio(asset('long_beep.mp3'));
-const almostPauseSound = new Audio(asset('almostSound.mp3'));
-const almostStartSound = new Audio(asset('almostSound.mp3'));
-const pauseSound = new Audio(asset('short_beep.mp3'));
-const intermediateSound = new Audio(asset('intermediateSound.mp3'));
+// Audio elements
+const startSound = new Audio(longBeepUrl);
+const almostPauseSound = new Audio(almostSoundUrl);
+const almostStartSound = new Audio(almostSoundUrl);
+const pauseSound = new Audio(shortBeepUrl);
+const intermediateSound = new Audio(intermediateSoundUrl);
 
 // Intermediate sounds
 let intermBeeps: number[] = [];
@@ -265,6 +271,9 @@ function startWorkout(): void {
 // Initialize
 async function init(): Promise<void> {
     await loadWorkout();
+
+    // Initialize WebGL + Wasm engine
+    await startEngine();
 
     resetElementsWithText();
     storeElementsWithText();

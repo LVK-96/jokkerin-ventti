@@ -1,16 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Workout Timer</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
     <div>
-        <input type="range" min="-10" max="200" value="25" step="5"
-            id="textSizeSlider" oninput="updateTextSize()">
+        <input type="range" min="-10" max="200" value="25" step="5" id="textSizeSlider" oninput="updateTextSize()">
     </div>
     <!---------------------------->
     <div><button id="startButton">Press to Start</button></div>
@@ -18,6 +19,10 @@
     <div id="exercise-count"></div>
     <div id="exercise-name"></div>
     <div id="set-count"></div>
+
+    <!-- WebGL Canvas -->
+    <canvas id="gl-canvas" style="width: 100%; height: 200px; display: block;"></canvas>
+
     <div class="container">
         <div class="container_flex">
             <div id="timer" hidden>Timer</div>
@@ -30,4 +35,5 @@
     <!----- Main script --------->
     <script type="module" src="/src/main.ts"></script>
 </body>
+
 </html>

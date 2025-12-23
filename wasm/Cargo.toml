@@ -1,0 +1,39 @@
+[package]
+name = "jokkerin-ventti-wasm"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde-wasm-bindgen = "0.6"
+cfg-if = "1.0"
+log = "0.4"
+console_log = "1.0"
+console_error_panic_hook = "0.1"
+glam = "0.30.9"
+
+[dependencies.wgpu]
+version = "24.0"
+
+[features]
+portable_simd = []
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "console",
+    "Window",
+    "Document",
+    "HtmlCanvasElement",
+    "Performance",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
