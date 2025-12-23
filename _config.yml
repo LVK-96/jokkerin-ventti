@@ -1,0 +1,5 @@
+# Jekyll configuration for GitHub Pages
+
+exclude:
+  - serve.sh
+  - README.md
