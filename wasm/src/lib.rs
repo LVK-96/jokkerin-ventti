@@ -4,15 +4,21 @@
 
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
 
+#[cfg(target_arch = "wasm32")]
 mod bench;
+#[cfg(target_arch = "wasm32")]
 mod gpu;
 mod math;
 
 use wasm_bindgen::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
 pub use bench::run_benchmarks;
+pub use glam::Vec3;
+#[cfg(target_arch = "wasm32")]
 pub use gpu::{init_gpu, render_frame};
-pub use math::{Mat4, Vec3};
+pub use math::Mat4;
+pub use math::Mat4Extended;
 
 /// Log to browser console
 #[wasm_bindgen]

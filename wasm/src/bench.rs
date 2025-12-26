@@ -1,4 +1,4 @@
-use crate::math::{Mat4, Mat4Handwritten};
+use crate::math::{Mat4, Mat4Extended};
 use wasm_bindgen::prelude::*;
 
 #[derive(serde::Serialize)]

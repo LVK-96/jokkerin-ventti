@@ -1,9 +1,8 @@
 //! Linear algebra primitives using glam with preserved handwritten kernels.
 
-pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec4};
-
-/// Extension trait to preserve handwritten kernels for benchmarking and research.
-pub trait Mat4Handwritten {
+pub use glam::Mat4;
+// Extension of glam Mat4, with hand written kernels for multiplication and transpose
+pub trait Mat4Extended {
     /// Scalar implementation of matrix multiplication
     fn multiply_scalar(&self, other: &Mat4) -> Mat4;
 
@@ -33,7 +32,7 @@ pub trait Mat4Handwritten {
     fn transpose_handwritten(&self) -> Mat4;
 }
 
-impl Mat4Handwritten for Mat4 {
+impl Mat4Extended for Mat4 {
     fn multiply_scalar(&self, other: &Mat4) -> Mat4 {
         let mut result_data = [0.0f32; 16];
         let a = self.as_ref();
@@ -196,6 +195,77 @@ impl Mat4Handwritten for Mat4 {
             } else {
                 self.transpose_scalar()
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::Rng;
+    use wasm_bindgen_test::*;
+
+    fn assert_matrix_approx_eq(a: Mat4, b: Mat4) {
+        let a_data = a.to_cols_array();
+        let b_data = b.to_cols_array();
+
+        let epsilon = if cfg!(all(target_arch = "wasm32", target_feature = "relaxed-simd")) {
+            1e-5 // Small tolerance for error if using Relaxed SIMD
+        } else {
+            0.0
+        };
+
+        for i in 0..16 {
+            if (a_data[i] - b_data[i]).abs() > epsilon {
+                panic!(
+                    "Matrix mismatch at index {}: {} vs {} (diff: {})",
+                    i,
+                    a_data[i],
+                    b_data[i],
+                    (a_data[i] - b_data[i]).abs()
+                );
+            }
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn test_handwritten_identity_transpose() {
+        let mat = Mat4::IDENTITY;
+        let transposed = mat.transpose_handwritten();
+        assert_matrix_approx_eq(mat, transposed);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_handwritten_transpose() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            // Generate 100 random matrices, transpose them with both glam and handwritten kernels and compare the results
+            let mat = Mat4::from_cols_array(&rng.r#gen::<[f32; 16]>());
+            let transposed_handwritten = mat.transpose_handwritten();
+            let transposed_glam = mat.transpose();
+            assert_matrix_approx_eq(transposed_handwritten, transposed_glam);
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn test_handwritten_identity_multiply() {
+        let a = Mat4::from_cols_array(&[1.0; 16]);
+        let b = Mat4::IDENTITY;
+        let multiplied = a.multiply_handwritten(&b);
+        assert_matrix_approx_eq(a, multiplied);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_handwritten_multiply() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            // Generate 100 random matrix pairs
+            // Multiply them with both glam and
+            // handwritten kernels and compare the results
+            let mat = Mat4::from_cols_array(&rng.r#gen::<[f32; 16]>());
+            let multiplied_handwritten = mat.multiply_handwritten(&mat);
+            let multiplied_glam = mat * mat;
+            assert_matrix_approx_eq(multiplied_handwritten, multiplied_glam);
         }
     }
 }
