@@ -2,7 +2,13 @@ body {
     font-family: 'Arial', sans-serif;
     text-align: center;
     margin: 10px;
-    background-color: #ededed;
+    background-color: white;
+    /* White outline for text readability */
+    text-shadow:
+        -1px -1px 0 white,
+        1px -1px 0 white,
+        -1px 1px 0 white,
+        1px 1px 0 white;
 }
 
 /* Container for the layout */
@@ -10,7 +16,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    position: relative; /* Enable positioning */
+    position: relative;
+    /* Enable positioning */
 }
 
 /* Left side of the layout */
@@ -19,28 +26,41 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    position: relative; /* Enable positioning */
-    z-index: 2; /* Ensure it's on top */
+    position: relative;
+    /* Enable positioning */
+    z-index: 2;
+    /* Ensure it's on top */
 }
 
 #startButton {
-    background-color: #1c1f1c; /* Green background */
-    border: none; /* Remove border */
-    color: white; /* White text */
-    padding: 15px 32px; /* Padding */
-    text-align: center; /* Center text */
-    text-decoration: none; /* Remove underline */
-    font-size: 35px; /* Font size */
-    margin-top: 20px; /* Margin on top */
-    border-radius: 8px; /* Rounded corners */
+    background-color: #1c1f1c;
+    /* Dark background */
+    border: 3px solid white;
+    /* White outline */
+    color: white;
+    /* White text */
+    padding: 15px 32px;
+    /* Padding */
+    text-align: center;
+    /* Center text */
+    text-decoration: none;
+    /* Remove underline */
+    font-size: 35px;
+    /* Font size */
+    margin-top: 20px;
+    /* Margin on top */
+    border-radius: 12px;
+    /* More rounded corners */
 }
 
 #textSizeSlider {
     -webkit-appearance: none;
     width: 50%;
     height: 25px;
-    background: #cdc9c9; /* Gray background */
-    border-radius: 6px; /* Rounded corners */
+    background: #cdc9c9;
+    /* Gray background */
+    border-radius: 6px;
+    /* Rounded corners */
 }
 
 #exercise-count {
@@ -74,7 +94,7 @@ body {
 }
 
 #progress-bar-container {
-    width:  100%;
+    width: 100%;
     height: 100%;
     position: absolute;
     top: 0;
@@ -83,17 +103,19 @@ body {
     opacity: 0.8;
     border-radius: 20px;
     overflow: hidden;
-    z-index: 1; /* Ensure it's behind other content */
+    z-index: 1;
+    /* Ensure it's behind other content */
 }
 
 #progress-bar {
-    width:  100%;
+    width: 100%;
     height: 100%;
     position: absolute;
     top: 0;
     left: 0;
     background-color: #4caf50;
     transition: width 0.5s;
-    z-index: 1; /* Ensure it's behind other content */
+    z-index: 1;
+    /* Ensure it's behind other content */
     /* transition-timing-function: linear; */
 }

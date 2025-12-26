@@ -25,7 +25,6 @@ let workoutTimer = 0;
 let pauseState = true;
 
 // Audio elements
-// Audio elements
 const startSound = new Audio(longBeepUrl);
 const almostPauseSound = new Audio(almostSoundUrl);
 const almostStartSound = new Audio(almostSoundUrl);

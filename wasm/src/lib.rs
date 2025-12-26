@@ -9,6 +9,7 @@ mod bench;
 #[cfg(target_arch = "wasm32")]
 mod gpu;
 mod math;
+mod skeleton;
 
 use wasm_bindgen::prelude::*;
 
@@ -16,7 +17,7 @@ use wasm_bindgen::prelude::*;
 pub use bench::run_benchmarks;
 pub use glam::Vec3;
 #[cfg(target_arch = "wasm32")]
-pub use gpu::{init_gpu, render_frame};
+pub use gpu::{init_gpu, render_frame, resize_gpu, update_time_uniform};
 pub use math::Mat4;
 pub use math::Mat4Extended;
 

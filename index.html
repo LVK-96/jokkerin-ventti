@@ -8,27 +8,39 @@
     <link rel="stylesheet" href="style.css">
 </head>
 
-<body>
+<body style="margin: 0; height: 100vh; overflow: hidden; position: relative;">
 
-    <div>
-        <input type="range" min="-10" max="200" value="25" step="5" id="textSizeSlider" oninput="updateTextSize()">
-    </div>
-    <!---------------------------->
-    <div><button id="startButton">Press to Start</button></div>
-    <!---------------------------->
-    <div id="exercise-count"></div>
-    <div id="exercise-name"></div>
-    <div id="set-count"></div>
+    <!-- Graphics Canvas - fills entire screen -->
+    <canvas id="gpu-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
 
-    <!-- WebGL Canvas -->
-    <canvas id="gl-canvas" style="width: 100%; height: 200px; display: block;"></canvas>
+    <!-- UI Overlay - floats on top of canvas -->
+    <div id="ui-overlay"
+        style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; display: flex; flex-direction: column;">
 
-    <div class="container">
-        <div class="container_flex">
-            <div id="timer" hidden>Timer</div>
+        <!-- Top controls -->
+        <div style="pointer-events: auto; padding: 10px; text-align: center;">
+            <input type="range" min="-10" max="200" value="25" step="5" id="textSizeSlider" oninput="updateTextSize()">
+            <div><button id="startButton">Press to Start</button></div>
         </div>
-        <div id="progress-bar-container" hidden>
-            <div id="progress-bar"></div>
+
+        <!-- Exercise info (top area) -->
+        <div style="pointer-events: auto; text-align: center;">
+            <div id="exercise-count"></div>
+            <div id="exercise-name"></div>
+            <div id="set-count"></div>
+        </div>
+
+        <!-- Spacer to push timer to bottom -->
+        <div style="flex: 1;"></div>
+
+        <!-- Timer at bottom -->
+        <div class="container" style="pointer-events: auto;">
+            <div class="container_flex">
+                <div id="timer" hidden>Timer</div>
+            </div>
+            <div id="progress-bar-container" hidden>
+                <div id="progress-bar"></div>
+            </div>
         </div>
     </div>
 
