@@ -4,7 +4,9 @@
  * Loads the Rust Wasm module and initializes WebGPU from Rust.
  */
 
-import init, { init_gpu, render_frame, resize_gpu, update_time_uniform, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+import init, { init_gpu, render_frame, resize_gpu, update_time_uniform, update_skeleton, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+
+export { set_exercise, load_animation };
 
 let animationId: number | null = null;
 let lastTime = 0;
@@ -24,6 +26,9 @@ function animate(time: number): void {
 
     // Update time uniform in Rust
     update_time_uniform(delta);
+
+    // Update skeleton animation based on current exercise
+    update_skeleton();
 
     // Render the frame
     render_frame();

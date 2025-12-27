@@ -8,7 +8,10 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
-use crate::skeleton::{SKELETON_BONE_COUNT, SKELETON_VERTICES};
+use crate::skeleton::{
+    AnimationClip, RENDER_BONE_COUNT, Skeleton, SkinnedVertex, generate_bind_pose_mesh,
+};
+use std::collections::HashMap;
 
 // Shared background/sky color
 const SKY_COLOR: wgpu::Color = wgpu::Color {
@@ -58,16 +61,27 @@ struct GpuState {
     grid_pipeline: wgpu::RenderPipeline,
     // GPU Buffers
     vertex_buffer: wgpu::Buffer,
+    bone_uniform_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
-    // Bind group
-    bind_group: wgpu::BindGroup,
+    // Depth texture
+    #[allow(dead_code)]
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
+    // Bind groups
+    uniform_bind_group: wgpu::BindGroup,
+    bone_bind_group: wgpu::BindGroup,
     // State
     uniforms: Uniforms,
+    current_exercise_name: String,
+    animations: HashMap<String, AnimationClip>,
+    vertex_count: u32,
 }
 
 /// Shader sources
 const SKELETON_SHADER: &str = include_str!("shaders/skeleton.wgsl");
 const GRID_SHADER: &str = include_str!("shaders/grid.wgsl");
+
+use glam::Vec3;
 
 fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement) -> (u32, u32) {
     // CSS pixels * device pixel ratio = physical pixels
@@ -174,40 +188,74 @@ pub async fn init_gpu(canvas_id: String) {
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    // Create bind group layout
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Uniform Bind Group Layout"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-    });
+    // Create uniform bind group layout
+    let uniform_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Uniform Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
-    // Create bind group
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    // Create uniform bind group
+    let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Uniform Bind Group"),
-        layout: &bind_group_layout,
+        layout: &uniform_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
             resource: uniform_buffer.as_entire_binding(),
         }],
     });
 
+    // Create bone uniform buffer
+    // Holds 29 mat4s
+    let bone_buffer_size = (RENDER_BONE_COUNT * 64) as u64;
+    let bone_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Bone Matrices Buffer"),
+        size: bone_buffer_size,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Create bone bind group layout
+    let bone_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bone Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+    // Create bone bind group
+    let bone_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Bone Bind Group"),
+        layout: &bone_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: bone_uniform_buffer.as_entire_binding(),
+        }],
+    });
+
     // Create pipeline layout
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Skeleton Pipeline Layout"),
-        bind_group_layouts: &[&bind_group_layout],
+        bind_group_layouts: &[&uniform_bind_group_layout, &bone_bind_group_layout],
         immediate_size: 0,
     });
-
-    // Let the GPU know the id of the head joint
-    let skeleton_constants = [("JOINT_HEAD", crate::skeleton::JointId::Head as u32 as f64)];
 
     // Constants for the grid shader
     let grid_constants = [
@@ -223,74 +271,117 @@ pub async fn init_gpu(canvas_id: String) {
         vertex: wgpu::VertexState {
             module: &skeleton_shader,
             entry_point: Some("vs_main"),
-            buffers: &[wgpu::VertexBufferLayout {
-                array_stride: 7 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &[
-                    // Start Position
-                    wgpu::VertexAttribute {
-                        offset: 0,
-                        shader_location: 0,
-                        format: wgpu::VertexFormat::Float32x3,
-                    },
-                    // End Position
-                    wgpu::VertexAttribute {
-                        offset: 3 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
-                        shader_location: 1,
-                        format: wgpu::VertexFormat::Float32x3,
-                    },
-                    // Bone ID
-                    wgpu::VertexAttribute {
-                        offset: 6 * std::mem::size_of::<f32>() as wgpu::BufferAddress,
-                        shader_location: 2,
-                        format: wgpu::VertexFormat::Float32,
-                    },
-                ],
-            }],
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &skeleton_constants,
-                ..Default::default()
-            },
+            buffers: &[
+                // Buffer 0: SkinnedVertex
+                wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<SkinnedVertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        // position
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        // normal
+                        wgpu::VertexAttribute {
+                            offset: 12,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        // bone_index
+                        wgpu::VertexAttribute {
+                            offset: 24,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Uint32,
+                        },
+                    ],
+                },
+            ],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &skeleton_shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: surface_format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend: None, // No blending for solid 3D objects
                 write_mask: wgpu::ColorWrites::ALL,
             })],
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &skeleton_constants,
-                ..Default::default()
-            },
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: None,
+            cull_mode: Some(wgpu::Face::Back), // Backface culling
             unclipped_depth: false,
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
     });
 
-    // Create vertex buffer with skeleton data
+    // Create depth texture
+    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Depth Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth24Plus,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Generate bind pose mesh (static)
+    let mesh_vertices = generate_bind_pose_mesh();
+    let vertex_count = mesh_vertices.len() as u32;
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Skeleton Vertex Buffer"),
-        contents: bytemuck::cast_slice(SKELETON_VERTICES),
+        contents: bytemuck::cast_slice(&mesh_vertices),
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    // Create grid render pipeline (no vertex buffer needed - uses built-in vertices)
+    // Create grid render pipeline setup
+    let grid_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Grid Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+    let grid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Grid Pipeline Layout"),
+        bind_group_layouts: &[&grid_bind_group_layout],
+        immediate_size: 0,
+    });
+
     let grid_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Grid Pipeline"),
-        layout: Some(&pipeline_layout),
+        layout: Some(&grid_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &grid_shader,
             entry_point: Some("vs_main"),
@@ -322,7 +413,13 @@ pub async fn init_gpu(canvas_id: String) {
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
@@ -330,7 +427,7 @@ pub async fn init_gpu(canvas_id: String) {
 
     // Set up default camera
     let mut uniforms = Uniforms::default();
-    let eye = glam::Vec3::new(0.0, 1.0, 4.0);
+    let eye = glam::Vec3::new(2.5, 1.2, 3.0);
     let target = glam::Vec3::new(0.0, 0.5, 0.0);
     let up = glam::Vec3::Y;
     uniforms.view = glam::Mat4::look_at_rh(eye, target, up).to_cols_array_2d();
@@ -346,7 +443,7 @@ pub async fn init_gpu(canvas_id: String) {
     )
     .to_cols_array_2d();
 
-    // Update uniform buffer with camera matrices
+    // Update uniform buffer
     queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
     let state = GpuState {
@@ -357,11 +454,17 @@ pub async fn init_gpu(canvas_id: String) {
         skeleton_pipeline,
         grid_pipeline,
         vertex_buffer,
+        bone_uniform_buffer,
         uniform_buffer,
-        bind_group,
+        depth_texture,
+        depth_view,
+        uniform_bind_group,
+        bone_bind_group,
         uniforms,
+        current_exercise_name: "idle".to_string(),
+        animations: HashMap::new(),
+        vertex_count,
     };
-
     GPU_STATE.with(|s| {
         *s.borrow_mut() = Some(state);
     });
@@ -429,6 +532,71 @@ pub fn update_time_uniform(delta_ms: f32) {
     });
 }
 
+/// Set the current exercise for animation
+#[wasm_bindgen]
+pub fn set_exercise(name: String) {
+    GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            state.current_exercise_name = name.to_lowercase();
+            log::info!("Exercise set to: {}", state.current_exercise_name);
+        }
+    });
+}
+
+/// Load an animation clip from JSON string
+/// Call this during startup for each exercise you want to animate
+#[wasm_bindgen]
+pub fn load_animation(json_data: String) -> Result<(), JsValue> {
+    let clip: AnimationClip = serde_json::from_str(&json_data)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse animation: {}", e)))?;
+
+    log::info!(
+        "Loaded animation: {} ({} keyframes, {:.1}s duration)",
+        clip.name,
+        clip.keyframes.len(),
+        clip.duration
+    );
+
+    GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            state.animations.insert(clip.name.to_lowercase(), clip);
+        }
+    });
+
+    Ok(())
+}
+
+/// Update skeleton animation based on current exercise and time
+/// Call this every frame before render_frame()
+#[wasm_bindgen]
+pub fn update_skeleton() {
+    GPU_STATE.with(|s| {
+        let state_ref = s.borrow();
+        if let Some(state) = state_ref.as_ref() {
+            let time = state.uniforms.time;
+
+            // Sample the animation clip for the current exercise
+            let skeleton = if let Some(clip) = state.animations.get(&state.current_exercise_name) {
+                clip.sample(time)
+            } else {
+                Skeleton::default()
+            };
+
+            // Compute bone matrices
+            let matrices = skeleton.compute_bone_matrices();
+
+            // Write to GPU
+            state.queue.write_buffer(
+                &state.bone_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&matrices),
+            );
+        }
+    });
+}
+
 /// Render a frame with the skeleton
 #[wasm_bindgen]
 pub fn render_frame() {
@@ -437,7 +605,7 @@ pub fn render_frame() {
         if let Some(state) = state_ref.as_ref() {
             let output = match state.surface.get_current_texture() {
                 Ok(t) => t,
-                Err(_) => return, // Surface lost, skip frame
+                Err(_) => return, // Surface lost
             };
 
             let view = output
@@ -463,7 +631,14 @@ pub fn render_frame() {
                         },
                         depth_slice: None,
                     })],
-                    depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &state.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
@@ -471,18 +646,17 @@ pub fn render_frame() {
 
                 // Draw background grid
                 render_pass.set_pipeline(&state.grid_pipeline);
-                render_pass.set_bind_group(0, &state.bind_group, &[]);
+                // Grid uses uniform bind group at index 0
+                render_pass.set_bind_group(0, &state.uniform_bind_group, &[]);
                 render_pass.draw(0..6, 0..1);
 
-                // Draw skeleton
+                // Draw skinned mesh
                 render_pass.set_pipeline(&state.skeleton_pipeline);
+                render_pass.set_bind_group(0, &state.uniform_bind_group, &[]);
+                render_pass.set_bind_group(1, &state.bone_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, state.vertex_buffer.slice(..));
-                // Pass the same vertex data (bone) to the GPU 6 times
-                // The GPU assigns an idx to each input
-                // We use the input idx to
-                // map to a corner of the bone
-                // in quad expansion
-                render_pass.draw(0..6, 0..SKELETON_BONE_COUNT);
+
+                render_pass.draw(0..state.vertex_count, 0..1);
             }
 
             state.queue.submit(std::iter::once(encoder.finish()));

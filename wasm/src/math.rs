@@ -237,10 +237,10 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_handwritten_transpose() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
             // Generate 100 random matrices, transpose them with both glam and handwritten kernels and compare the results
-            let mat = Mat4::from_cols_array(&rng.r#gen::<[f32; 16]>());
+            let mat = Mat4::from_cols_array(&rng.random::<[f32; 16]>());
             let transposed_handwritten = mat.transpose_handwritten();
             let transposed_glam = mat.transpose();
             assert_matrix_approx_eq(transposed_handwritten, transposed_glam);
@@ -257,12 +257,12 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_handwritten_multiply() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
             // Generate 100 random matrix pairs
             // Multiply them with both glam and
             // handwritten kernels and compare the results
-            let mat = Mat4::from_cols_array(&rng.r#gen::<[f32; 16]>());
+            let mat = Mat4::from_cols_array(&rng.random::<[f32; 16]>());
             let multiplied_handwritten = mat.multiply_handwritten(&mat);
             let multiplied_glam = mat * mat;
             assert_matrix_approx_eq(multiplied_handwritten, multiplied_glam);

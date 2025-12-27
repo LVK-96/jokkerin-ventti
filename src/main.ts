@@ -1,5 +1,5 @@
 import { Exercise, Workout } from './types';
-import { startEngine } from './webgpu';
+import { startEngine, set_exercise, load_animation } from './webgpu';
 
 // Assets
 import workoutUrl from './assets/Workouts/jokkeri_ventti.json?url';
@@ -7,6 +7,10 @@ import longBeepUrl from './assets/long_beep.mp3';
 import almostSoundUrl from './assets/almostSound.mp3';
 import shortBeepUrl from './assets/short_beep.mp3';
 import intermediateSoundUrl from './assets/intermediateSound.mp3';
+
+// Animation data - loaded as raw text for wasm parsing
+import jumpingJacksAnim from './assets/animations/jumping_jacks.json?raw';
+import lungesAnim from './assets/animations/lunges.json?raw';
 
 // Workout configuration
 const WORKOUT_JSON_PATH = workoutUrl;
@@ -148,6 +152,10 @@ function nextExercise(): void {
     workoutTimer = exercises[currentExercise].workoutTime;
     pauseTimer = exercises[currentExercise].pauseTime;
     pauseState = false;
+
+    // Update stickman animation for current exercise
+    set_exercise(exercises[currentExercise].name);
+
     updateUI();
 }
 
@@ -251,6 +259,59 @@ function updateTextSize(): void {
     updateTextSizes(sliderValue);
 }
 
+/**
+ * Skip to a specific exercise by index (0-based)
+ */
+function skipToExercise(index: number): void {
+    if (index < 0 || index >= exercises.length) {
+        console.log(`Invalid exercise index: ${index}`);
+        return;
+    }
+
+    currentExercise = index;
+    currentSet = 1;
+    workoutTimer = exercises[currentExercise].workoutTime;
+    pauseTimer = exercises[currentExercise].pauseTime;
+    pauseState = false;
+    exerciseName = exercises[currentExercise].name;
+
+    // Update stickman animation for current exercise
+    set_exercise(exercises[currentExercise].name);
+    console.log(`Skipped to exercise ${index + 1}: ${exerciseName}`);
+
+    updateUI();
+}
+
+/**
+ * Skip to next exercise
+ */
+function skipNextExercise(): void {
+    if (currentExercise < exercises.length - 1) {
+        skipToExercise(currentExercise + 1);
+    }
+}
+
+/**
+ * Skip to previous exercise
+ */
+function skipPrevExercise(): void {
+    if (currentExercise > 0) {
+        skipToExercise(currentExercise - 1);
+    }
+}
+
+// Keyboard shortcuts for exercise navigation
+document.addEventListener('keydown', (event) => {
+    // Skip to next exercise with 'n' or right arrow
+    if (event.key === 'n' || event.key === 'N' || event.key === 'ArrowRight') {
+        skipNextExercise();
+    }
+    // Skip to previous exercise with 'p' or left arrow
+    if (event.key === 'p' || event.key === 'P' || event.key === 'ArrowLeft') {
+        skipPrevExercise();
+    }
+});
+
 function startWorkout(): void {
     requestWakeLock();
     updateUI();
@@ -259,6 +320,9 @@ function startWorkout(): void {
     resetElementsWithText();
     storeElementsWithText();
     updateTextSize();
+
+    // Start the first exercise animation
+    set_exercise(exercises[currentExercise].name);
 
     workoutDone = false;
     intervalId = window.setInterval(() => {
@@ -271,8 +335,12 @@ function startWorkout(): void {
 async function init(): Promise<void> {
     await loadWorkout();
 
-    // Initialize WebGL + Wasm engine
+    // Initialize WebGPU + Wasm engine
     await startEngine();
+
+    // Load keyframe animations for exercises
+    load_animation(jumpingJacksAnim);
+    load_animation(lungesAnim);
 
     resetElementsWithText();
     storeElementsWithText();

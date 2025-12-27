@@ -1,100 +1,540 @@
-//! Skeleton vertex data for T-pose stick figure
+//! Skeleton system with glam-based bone positions
 //!
-//! Defines the vertex positions for a humanoid skeleton as line segments.
-//! Each pair of consecutive Vec3 values represents a line from point A to point B.
+//! CPU defines joint positions using glam::Vec3.
+//! GPU generates cylinder/sphere geometry via instanced rendering.
 
-/// Joint identifiers for animation
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JointId {
-    Root = 0,
-    Hips = 1,
-    Chest = 2,
-    Neck = 3,
-    Head = 4,
-    LeftShoulder = 5,
-    LeftHand = 6,
-    RightShoulder = 7,
-    RightHand = 8,
-    LeftHip = 9,
-    LeftKnee = 10,
-    LeftFoot = 11,
-    RightHip = 12,
-    RightKnee = 13,
-    RightFoot = 14,
+use glam::Vec3;
+
+// Import shared skeleton constants for the default pose
+use crate::skeleton_constants::*;
+
+/// Radius constants for rendering
+pub const BONE_RADIUS: f32 = 0.04;
+pub const HEAD_RADIUS: f32 = 0.12;
+pub const JOINT_RADIUS: f32 = 0.05; // Debug: slightly larger than bones so visible at exact positions
+
+/// Vertex format for skinned mesh
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SkinnedVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub bone_index: u32,
 }
 
-/// Vertex data: start_pos (3), end_pos (3), bone_id (1)
-/// Format: 7 floats per bone segment
-#[rustfmt::skip]
-pub const SKELETON_VERTICES: &[f32] = &[
-    // === SPINE ===
-    // Hips to Chest
-    0.0, 0.5, 0.0,      0.0, 1.0, 0.0,      JointId::Chest as u32 as f32,
-    // Chest to Neck
-    0.0, 1.0, 0.0,      0.0, 1.2, 0.0,      JointId::Neck as u32 as f32,
-    // === HEAD ===
-    0.0, 1.35, 0.0,     0.0, 1.35, 0.0,     JointId::Head as u32 as f32,
+// Total number of renderable parts (bones)
+// 13 cylinders + 1 head sphere + 15 debug joint spheres = 29
+pub const RENDER_BONE_COUNT: usize = 29;
 
-    // === LEFT ARM ===
-    // Neck to Left Shoulder
-    0.0, 1.2, 0.0,      -0.15, 1.15, 0.0,   JointId::LeftShoulder as u32 as f32,
-    // Left Shoulder to Left Hand
-    -0.15, 1.15, 0.0,   -0.4, 0.85, 0.0,    JointId::LeftHand as u32 as f32,
+fn add_cylinder(
+    vertices: &mut Vec<SkinnedVertex>,
+    start: Vec3,
+    end: Vec3,
+    radius: f32,
+    bone_idx: u32,
+) {
+    let dir = (end - start).normalize();
+    let length = start.distance(end);
+    let valid_len = if length < 0.0001 { 0.0001 } else { length };
 
-    // === RIGHT ARM ===
-    // Neck to Right Shoulder
-    0.0, 1.2, 0.0,      0.15, 1.15, 0.0,    JointId::RightShoulder as u32 as f32,
-    // Right Shoulder to Right Hand
-    0.15, 1.15, 0.0,    0.4, 0.85, 0.0,     JointId::RightHand as u32 as f32,
+    let segments = 12;
 
-    // === LEFT LEG ===
-    // Hips to Left Hip
-    0.0, 0.5, 0.0,      -0.1, 0.45, 0.0,    JointId::LeftHip as u32 as f32,
-    // Left Hip to Left Knee
-    -0.1, 0.45, 0.0,    -0.25, 0.25, 0.0,   JointId::LeftKnee as u32 as f32,
-    // Left Knee to Left Foot
-    -0.25, 0.25, 0.0,   -0.45, 0.0, 0.0,    JointId::LeftFoot as u32 as f32,
+    // Basis
+    let up = if dir.abs().dot(Vec3::Y) > 0.99 {
+        Vec3::X
+    } else {
+        Vec3::Y
+    };
+    let right = dir.cross(up).normalize();
+    let up = right.cross(dir).normalize();
 
-    // === RIGHT LEG ===
-    // Hips to Right Hip
-    0.0, 0.5, 0.0,      0.1, 0.45, 0.0,     JointId::RightHip as u32 as f32,
-    // Right Hip to Right Knee
-    0.1, 0.45, 0.0,     0.25, 0.25, 0.0,    JointId::RightKnee as u32 as f32,
-    // Right Knee to Right Foot
-    0.25, 0.25, 0.0,    0.45, 0.0, 0.0,     JointId::RightFoot as u32 as f32,
-];
+    // Function to get point on ring at distance 'd' along bone
+    let get_point = |angle: f32, d: f32, r: f32| -> (Vec3, Vec3) {
+        let (sin, cos) = angle.sin_cos();
+        let local_p = right * (cos * r) + up * (sin * r) + dir * d;
+        let local_n = (right * cos + up * sin).normalize();
+        (start + local_p, local_n)
+    };
 
-/// Number of bone segments in the skeleton
-pub const SKELETON_BONE_COUNT: u32 = (SKELETON_VERTICES.len() / 7) as u32;
+    // Body
+    for i in 0..segments {
+        let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
+        let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+        let (p1, n1) = get_point(a1, 0.0, radius);
+        let (p2, n2) = get_point(a2, 0.0, radius);
+        let (p3, n3) = get_point(a1, valid_len, radius);
+        let (p4, n4) = get_point(a2, valid_len, radius);
 
-    #[test]
-    fn test_vertex_count() {
-        // 13 segments (Spine: 2, Head: 1, Arms: 2+2, Legs: 3+3)
-        // 13 segments * 7 floats = 91 floats
-        assert_eq!(SKELETON_VERTICES.len(), 91);
-        assert_eq!(SKELETON_BONE_COUNT, 13);
+        // Triangle 1
+        vertices.push(SkinnedVertex {
+            position: p1.to_array(),
+            normal: n1.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p3.to_array(),
+            normal: n3.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p2.to_array(),
+            normal: n2.to_array(),
+            bone_index: bone_idx,
+        });
+
+        // Triangle 2
+        vertices.push(SkinnedVertex {
+            position: p2.to_array(),
+            normal: n2.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p3.to_array(),
+            normal: n3.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p4.to_array(),
+            normal: n4.to_array(),
+            bone_index: bone_idx,
+        });
     }
 
-    #[test]
-    fn test_vertices_are_reasonable() {
-        // All vertices should be within a reasonable bounding box
-        for chunk in SKELETON_VERTICES.chunks(7) {
-            let x1 = chunk[0];
-            let y1 = chunk[1];
-            let x2 = chunk[3];
-            let y2 = chunk[4];
-            let id = chunk[6];
+    // Caps (simple flat fan)
+    // Start cap
+    let center_start = start;
+    let normal_start = -dir;
+    for i in 0..segments {
+        let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
+        let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
+        let (p1, _) = get_point(a1, 0.0, radius);
+        let (p2, _) = get_point(a2, 0.0, radius);
 
-            assert!(x1 >= -1.0 && x1 <= 1.0);
-            assert!(y1 >= 0.0 && y1 <= 2.0);
-            assert!(x2 >= -1.0 && x2 <= 1.0);
-            assert!(y2 >= 0.0 && y2 <= 2.0);
-            assert!(id > 0.0);
+        vertices.push(SkinnedVertex {
+            position: center_start.to_array(),
+            normal: normal_start.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p2.to_array(),
+            normal: normal_start.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p1.to_array(),
+            normal: normal_start.to_array(),
+            bone_index: bone_idx,
+        });
+    }
+
+    // End cap
+    let center_end = start + dir * valid_len;
+    let normal_end = dir;
+    for i in 0..segments {
+        let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
+        let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
+        let (p1, _) = get_point(a1, valid_len, radius);
+        let (p2, _) = get_point(a2, valid_len, radius);
+
+        vertices.push(SkinnedVertex {
+            position: center_end.to_array(),
+            normal: normal_end.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p1.to_array(),
+            normal: normal_end.to_array(),
+            bone_index: bone_idx,
+        });
+        vertices.push(SkinnedVertex {
+            position: p2.to_array(),
+            normal: normal_end.to_array(),
+            bone_index: bone_idx,
+        });
+    }
+}
+
+// Helper to add a sphere
+fn add_sphere(vertices: &mut Vec<SkinnedVertex>, center: Vec3, radius: f32, bone_idx: u32) {
+    let lat_segments = 8;
+    let lon_segments = 12;
+
+    for i in 0..lat_segments {
+        let theta1 = (i as f32 / lat_segments as f32) * std::f32::consts::PI;
+        let theta2 = ((i + 1) as f32 / lat_segments as f32) * std::f32::consts::PI;
+
+        for j in 0..lon_segments {
+            let phi1 = (j as f32 / lon_segments as f32) * std::f32::consts::TAU;
+            let phi2 = ((j + 1) as f32 / lon_segments as f32) * std::f32::consts::TAU;
+
+            let get_pos = |theta: f32, phi: f32| -> Vec3 {
+                let sin_theta = theta.sin();
+                Vec3::new(
+                    radius * sin_theta * phi.cos(),
+                    radius * theta.cos(),
+                    radius * sin_theta * phi.sin(),
+                )
+            };
+
+            let p1 = get_pos(theta1, phi1);
+            let p2 = get_pos(theta2, phi1);
+            let p3 = get_pos(theta1, phi2);
+            let p4 = get_pos(theta2, phi2);
+
+            let n1 = p1.normalize();
+            let n2 = p2.normalize();
+            let n3 = p3.normalize();
+            let n4 = p4.normalize();
+
+            let w1 = center + p1;
+            let w2 = center + p2;
+            let w3 = center + p3;
+            let w4 = center + p4;
+
+            // Two triangles
+            vertices.push(SkinnedVertex {
+                position: w1.to_array(),
+                normal: n1.to_array(),
+                bone_index: bone_idx,
+            });
+            vertices.push(SkinnedVertex {
+                position: w2.to_array(),
+                normal: n2.to_array(),
+                bone_index: bone_idx,
+            });
+            vertices.push(SkinnedVertex {
+                position: w3.to_array(),
+                normal: n3.to_array(),
+                bone_index: bone_idx,
+            });
+
+            vertices.push(SkinnedVertex {
+                position: w2.to_array(),
+                normal: n2.to_array(),
+                bone_index: bone_idx,
+            });
+            vertices.push(SkinnedVertex {
+                position: w4.to_array(),
+                normal: n4.to_array(),
+                bone_index: bone_idx,
+            });
+            vertices.push(SkinnedVertex {
+                position: w3.to_array(),
+                normal: n3.to_array(),
+                bone_index: bone_idx,
+            });
         }
+    }
+}
+
+pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
+    let mut vertices = Vec::new();
+    let s = Skeleton::default();
+
+    // Order MUST match compute_bone_matrices
+    add_cylinder(&mut vertices, s.hips, s.neck, BONE_RADIUS, 0);
+    add_cylinder(&mut vertices, s.neck, s.left_shoulder, BONE_RADIUS, 1);
+    add_cylinder(&mut vertices, s.left_shoulder, s.left_elbow, BONE_RADIUS, 2);
+    add_cylinder(&mut vertices, s.left_elbow, s.left_hand, BONE_RADIUS, 3);
+    add_cylinder(&mut vertices, s.neck, s.right_shoulder, BONE_RADIUS, 4);
+    add_cylinder(
+        &mut vertices,
+        s.right_shoulder,
+        s.right_elbow,
+        BONE_RADIUS,
+        5,
+    );
+    add_cylinder(&mut vertices, s.right_elbow, s.right_hand, BONE_RADIUS, 6);
+    add_cylinder(&mut vertices, s.hips, s.left_hip, BONE_RADIUS, 7);
+    add_cylinder(&mut vertices, s.left_hip, s.left_knee, BONE_RADIUS, 8);
+    add_cylinder(&mut vertices, s.left_knee, s.left_foot, BONE_RADIUS, 9);
+    add_cylinder(&mut vertices, s.hips, s.right_hip, BONE_RADIUS, 10);
+    add_cylinder(&mut vertices, s.right_hip, s.right_knee, BONE_RADIUS, 11);
+    add_cylinder(&mut vertices, s.right_knee, s.right_foot, BONE_RADIUS, 12);
+
+    add_sphere(&mut vertices, s.head, HEAD_RADIUS, 13);
+
+    // Debug joints
+    add_sphere(&mut vertices, s.hips, JOINT_RADIUS, 14);
+    add_sphere(&mut vertices, s.neck, JOINT_RADIUS, 15);
+    add_sphere(&mut vertices, s.left_shoulder, JOINT_RADIUS, 16);
+    add_sphere(&mut vertices, s.left_elbow, JOINT_RADIUS, 17);
+    add_sphere(&mut vertices, s.left_hand, JOINT_RADIUS, 18);
+    add_sphere(&mut vertices, s.right_shoulder, JOINT_RADIUS, 19);
+    add_sphere(&mut vertices, s.right_elbow, JOINT_RADIUS, 20);
+    add_sphere(&mut vertices, s.right_hand, JOINT_RADIUS, 21);
+    add_sphere(&mut vertices, s.left_hip, JOINT_RADIUS, 22);
+    add_sphere(&mut vertices, s.left_knee, JOINT_RADIUS, 23);
+    add_sphere(&mut vertices, s.left_foot, JOINT_RADIUS, 24);
+    add_sphere(&mut vertices, s.right_hip, JOINT_RADIUS, 25);
+    add_sphere(&mut vertices, s.right_knee, JOINT_RADIUS, 26);
+    add_sphere(&mut vertices, s.right_foot, JOINT_RADIUS, 27);
+    add_sphere(&mut vertices, s.head, JOINT_RADIUS, 28);
+
+    vertices
+}
+
+impl Skeleton {
+    /// Compute all bone matrices for skinning
+    /// Returns [Mat4; 29]
+    pub fn compute_bone_matrices(&self) -> [glam::Mat4; RENDER_BONE_COUNT] {
+        let bind = Skeleton::default();
+        let mut matrices = [glam::Mat4::IDENTITY; RENDER_BONE_COUNT];
+
+        // Cylinders
+        matrices[0] = compute_aligned_matrix(bind.hips, bind.neck, self.hips, self.neck);
+        matrices[1] =
+            compute_aligned_matrix(bind.neck, bind.left_shoulder, self.neck, self.left_shoulder);
+        matrices[2] = compute_aligned_matrix(
+            bind.left_shoulder,
+            bind.left_elbow,
+            self.left_shoulder,
+            self.left_elbow,
+        );
+        matrices[3] = compute_aligned_matrix(
+            bind.left_elbow,
+            bind.left_hand,
+            self.left_elbow,
+            self.left_hand,
+        );
+        matrices[4] = compute_aligned_matrix(
+            bind.neck,
+            bind.right_shoulder,
+            self.neck,
+            self.right_shoulder,
+        );
+        matrices[5] = compute_aligned_matrix(
+            bind.right_shoulder,
+            bind.right_elbow,
+            self.right_shoulder,
+            self.right_elbow,
+        );
+        matrices[6] = compute_aligned_matrix(
+            bind.right_elbow,
+            bind.right_hand,
+            self.right_elbow,
+            self.right_hand,
+        );
+        matrices[7] = compute_aligned_matrix(bind.hips, bind.left_hip, self.hips, self.left_hip);
+        matrices[8] =
+            compute_aligned_matrix(bind.left_hip, bind.left_knee, self.left_hip, self.left_knee);
+        matrices[9] = compute_aligned_matrix(
+            bind.left_knee,
+            bind.left_foot,
+            self.left_knee,
+            self.left_foot,
+        );
+        matrices[10] = compute_aligned_matrix(bind.hips, bind.right_hip, self.hips, self.right_hip);
+        matrices[11] = compute_aligned_matrix(
+            bind.right_hip,
+            bind.right_knee,
+            self.right_hip,
+            self.right_knee,
+        );
+        matrices[12] = compute_aligned_matrix(
+            bind.right_knee,
+            bind.right_foot,
+            self.right_knee,
+            self.right_foot,
+        );
+
+        // Head Sphere
+        matrices[13] = compute_offset_matrix(bind.head, self.head);
+
+        // Debug joints
+        matrices[14] = compute_offset_matrix(bind.hips, self.hips);
+        matrices[15] = compute_offset_matrix(bind.neck, self.neck);
+        matrices[16] = compute_offset_matrix(bind.left_shoulder, self.left_shoulder);
+        matrices[17] = compute_offset_matrix(bind.left_elbow, self.left_elbow);
+        matrices[18] = compute_offset_matrix(bind.left_hand, self.left_hand);
+        matrices[19] = compute_offset_matrix(bind.right_shoulder, self.right_shoulder);
+        matrices[20] = compute_offset_matrix(bind.right_elbow, self.right_elbow);
+        matrices[21] = compute_offset_matrix(bind.right_hand, self.right_hand);
+        matrices[22] = compute_offset_matrix(bind.left_hip, self.left_hip);
+        matrices[23] = compute_offset_matrix(bind.left_knee, self.left_knee);
+        matrices[24] = compute_offset_matrix(bind.left_foot, self.left_foot);
+        matrices[25] = compute_offset_matrix(bind.right_hip, self.right_hip);
+        matrices[26] = compute_offset_matrix(bind.right_knee, self.right_knee);
+        matrices[27] = compute_offset_matrix(bind.right_foot, self.right_foot);
+        matrices[28] = compute_offset_matrix(bind.head, self.head);
+
+        matrices
+    }
+}
+
+fn compute_aligned_matrix(b_start: Vec3, b_end: Vec3, c_start: Vec3, c_end: Vec3) -> glam::Mat4 {
+    let b_dir = (b_end - b_start).normalize();
+    let c_dir = (c_end - c_start).normalize();
+    let rot = glam::Quat::from_rotation_arc(b_dir, c_dir);
+    glam::Mat4::from_translation(c_start)
+        * glam::Mat4::from_quat(rot)
+        * glam::Mat4::from_translation(-b_start)
+}
+
+fn compute_offset_matrix(b_center: Vec3, c_center: Vec3) -> glam::Mat4 {
+    glam::Mat4::from_translation(c_center - b_center)
+}
+
+/// Skeleton with named joint positions using glam::Vec3
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct Skeleton {
+    pub hips: Vec3,
+    pub neck: Vec3,
+    pub head: Vec3,
+    pub left_shoulder: Vec3,
+    pub left_elbow: Vec3,
+    pub left_hand: Vec3,
+    pub right_shoulder: Vec3,
+    pub right_elbow: Vec3,
+    pub right_hand: Vec3,
+    pub left_hip: Vec3,
+    pub left_knee: Vec3,
+    pub left_foot: Vec3,
+    pub right_hip: Vec3,
+    pub right_knee: Vec3,
+    pub right_foot: Vec3,
+}
+
+impl Default for Skeleton {
+    fn default() -> Self {
+        Self {
+            hips: DEFAULT_HIPS,
+            neck: DEFAULT_NECK,
+            head: DEFAULT_HEAD,
+            left_shoulder: DEFAULT_LEFT_SHOULDER,
+            left_elbow: DEFAULT_LEFT_ELBOW,
+            left_hand: DEFAULT_LEFT_HAND,
+            right_shoulder: DEFAULT_RIGHT_SHOULDER,
+            right_elbow: DEFAULT_RIGHT_ELBOW,
+            right_hand: DEFAULT_RIGHT_HAND,
+            left_hip: DEFAULT_LEFT_HIP,
+            left_knee: DEFAULT_LEFT_KNEE,
+            left_foot: DEFAULT_LEFT_FOOT,
+            right_hip: DEFAULT_RIGHT_HIP,
+            right_knee: DEFAULT_RIGHT_KNEE,
+            right_foot: DEFAULT_RIGHT_FOOT,
+        }
+    }
+}
+
+impl Skeleton {
+    /// Linearly interpolate between two skeleton poses
+    /// t=0.0 returns self, t=1.0 returns other
+    pub fn lerp(&self, other: &Self, t: f32) -> Self {
+        Self {
+            hips: self.hips.lerp(other.hips, t),
+            neck: self.neck.lerp(other.neck, t),
+            head: self.head.lerp(other.head, t),
+            left_shoulder: self.left_shoulder.lerp(other.left_shoulder, t),
+            left_elbow: self.left_elbow.lerp(other.left_elbow, t),
+            left_hand: self.left_hand.lerp(other.left_hand, t),
+            right_shoulder: self.right_shoulder.lerp(other.right_shoulder, t),
+            right_elbow: self.right_elbow.lerp(other.right_elbow, t),
+            right_hand: self.right_hand.lerp(other.right_hand, t),
+            left_hip: self.left_hip.lerp(other.left_hip, t),
+            left_knee: self.left_knee.lerp(other.left_knee, t),
+            left_foot: self.left_foot.lerp(other.left_foot, t),
+            right_hip: self.right_hip.lerp(other.right_hip, t),
+            right_knee: self.right_knee.lerp(other.right_knee, t),
+            right_foot: self.right_foot.lerp(other.right_foot, t),
+        }
+    }
+}
+
+/// A single point in time with a skeleton pose
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Keyframe {
+    /// Time in seconds when this pose occurs
+    pub time: f32,
+    /// The skeleton pose at this time
+    pub pose: Skeleton,
+}
+
+/// A full animation clip consisting of multiple keyframes
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AnimationClip {
+    /// Name of the animation (e.g., "jumping_jacks")
+    pub name: String,
+    /// Total duration in seconds (animation loops after this)
+    pub duration: f32,
+    /// Keyframes sorted by time
+    pub keyframes: Vec<Keyframe>,
+}
+
+impl AnimationClip {
+    /// Sample the animation at a given time, returning an interpolated skeleton pose.
+    /// Time is automatically looped within the clip's duration.
+    /// The animation smoothly wraps from the last keyframe back to the first.
+    pub fn sample(&self, time: f32) -> Skeleton {
+        if self.keyframes.is_empty() {
+            return Skeleton::default();
+        }
+
+        if self.keyframes.len() == 1 {
+            return self.keyframes[0].pose;
+        }
+
+        // Loop time within duration
+        let t = if self.duration > 0.0 {
+            time % self.duration
+        } else {
+            0.0
+        };
+
+        // Find the two keyframes to interpolate between
+        // Linear search is fine for small keyframe counts (~4-8)
+        let mut next_idx = self.keyframes.len();
+        for (i, frame) in self.keyframes.iter().enumerate() {
+            if frame.time > t {
+                next_idx = i;
+                break;
+            }
+        }
+
+        // Handle wrap-around: after last keyframe, interpolate toward first
+        if next_idx >= self.keyframes.len() {
+            let last = self.keyframes.last().unwrap();
+            let first = &self.keyframes[0];
+
+            // Time remaining after last keyframe until duration ends
+            let wrap_segment = self.duration - last.time;
+            if wrap_segment > 0.0 {
+                let factor = (t - last.time) / wrap_segment;
+                return last.pose.lerp(&first.pose, factor);
+            } else {
+                return last.pose;
+            }
+        }
+
+        // Handle before first keyframe: interpolate from last
+        if next_idx == 0 {
+            let last = self.keyframes.last().unwrap();
+            let first = &self.keyframes[0];
+
+            // This happens when t < first keyframe time
+            // Interpolate from last keyframe (wrapped from previous cycle)
+            let wrap_segment = first.time + (self.duration - last.time);
+            if wrap_segment > 0.0 {
+                // t is in the range [0, first.time), factor should go toward first
+                let factor = (self.duration - last.time + t) / wrap_segment;
+                return last.pose.lerp(&first.pose, factor);
+            } else {
+                return first.pose;
+            }
+        }
+
+        let prev = &self.keyframes[next_idx - 1];
+        let next = &self.keyframes[next_idx];
+
+        // Calculate interpolation factor (0.0 to 1.0)
+        let segment_duration = next.time - prev.time;
+        let factor = if segment_duration > 0.0 {
+            (t - prev.time) / segment_duration
+        } else {
+            0.0
+        };
+
+        prev.pose.lerp(&next.pose, factor)
     }
 }
