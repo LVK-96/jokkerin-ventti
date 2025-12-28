@@ -8,10 +8,18 @@ use glam::{Vec3, Vec3A};
 // Import shared skeleton constants for the default pose
 use crate::skeleton_constants::*;
 
-/// Radius constants for rendering
+/// Radius constants for rendering and physics
+///
+/// BONE_RADIUS is used for:
+/// - Cylinder geometry thickness when rendering bones
+/// - Floor collision detection (joints must be above BONE_RADIUS to avoid clipping)
 pub const BONE_RADIUS: f32 = 0.04;
+
+/// Radius of the head sphere mesh
 pub const HEAD_RADIUS: f32 = 0.12;
-pub const JOINT_RADIUS: f32 = 0.05; // Debug: slightly larger than bones so visible at exact positions
+
+/// Radius of debug joint spheres (slightly larger than bones for visibility)
+pub const JOINT_RADIUS: f32 = 0.05;
 
 /// Vertex format for skinned mesh
 #[repr(C)]

@@ -1,6 +1,50 @@
 use crate::GPU_STATE;
 
 use wasm_bindgen::prelude::*;
+use crate::bone_hierarchy::BoneId;
+
+fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
+    match joint_index {
+        // IK Chains (End Effectors)
+        6 => Some((
+            BoneId::LeftForearm,
+            vec![
+                BoneId::LeftShoulder,
+                BoneId::LeftUpperArm,
+                BoneId::LeftForearm,
+            ],
+        )),
+        9 => Some((
+            BoneId::RightForearm,
+            vec![
+                BoneId::RightShoulder,
+                BoneId::RightUpperArm,
+                BoneId::RightForearm,
+            ],
+        )),
+        12 => Some((BoneId::LeftShin, vec![BoneId::LeftThigh, BoneId::LeftShin])),
+        15 => Some((
+            BoneId::RightShin,
+            vec![BoneId::RightThigh, BoneId::RightShin],
+        )),
+        3 => Some((
+            BoneId::Head,
+            vec![BoneId::Spine, BoneId::Neck, BoneId::Head],
+        )),
+        1 => Some((BoneId::Spine, vec![BoneId::Spine])),
+        2 => Some((BoneId::Neck, vec![BoneId::Neck])),
+
+        // FK Bones (Intermediate Joints)
+        5 => Some((BoneId::LeftUpperArm, vec![])),
+        8 => Some((BoneId::RightUpperArm, vec![])),
+        4 => Some((BoneId::LeftShoulder, vec![])),
+        7 => Some((BoneId::RightShoulder, vec![])),
+        11 => Some((BoneId::LeftThigh, vec![])),
+        14 => Some((BoneId::RightThigh, vec![])),
+
+        _ => None,
+    }
+}
 
 // =============================================================================
 // KEYFRAME EDITOR FUNCTIONS
@@ -158,8 +202,6 @@ pub fn get_joint_screen_positions() -> Vec<f32> {
 /// Apply a screen-space drag to a joint, computing new rotations via IK
 #[wasm_bindgen]
 pub fn apply_joint_drag(joint_index: usize, dx: f32, dy: f32) {
-    use crate::bone_hierarchy::BoneId;
-
     GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
@@ -207,49 +249,10 @@ pub fn apply_joint_drag(joint_index: usize, dx: f32, dy: f32) {
                     }
 
                     // IK Chains or FK Bones
-                    let (bone_id, chain) = match joint_index {
-                        // IK Chains (End Effectors)
-                        6 => (
-                            BoneId::LeftForearm,
-                            vec![
-                                BoneId::LeftShoulder,
-                                BoneId::LeftUpperArm,
-                                BoneId::LeftForearm,
-                            ],
-                        ),
-                        9 => (
-                            BoneId::RightForearm,
-                            vec![
-                                BoneId::RightShoulder,
-                                BoneId::RightUpperArm,
-                                BoneId::RightForearm,
-                            ],
-                        ),
-                        12 => (BoneId::LeftShin, vec![BoneId::LeftThigh, BoneId::LeftShin]),
-                        15 => (
-                            BoneId::RightShin,
-                            vec![BoneId::RightThigh, BoneId::RightShin],
-                        ),
-                        3 => (
-                            BoneId::Head,
-                            vec![BoneId::Spine, BoneId::Neck, BoneId::Head],
-                        ),
-                        1 => (BoneId::Spine, vec![BoneId::Spine]),
-                        2 => (BoneId::Neck, vec![BoneId::Neck]),
-
-
-                        // FK Bones (Intermediate Joints)
-                        5 => (BoneId::LeftUpperArm, vec![]),
-                        8 => (BoneId::RightUpperArm, vec![]),
-                        4 => (BoneId::LeftShoulder, vec![]),
-                        7 => (BoneId::RightShoulder, vec![]),
-                        11 => (BoneId::LeftThigh, vec![]),
-                        14 => (BoneId::RightThigh, vec![]),
-
-                        _ => {
-                            // Not a draggable target
-                            return;
-                        }
+                    let (bone_id, chain) = if let Some(res) = get_bone_and_chain(joint_index) {
+                        res
+                    } else {
+                        return;
                     };
 
                     // 2. Calculate target position in world space
@@ -534,7 +537,6 @@ pub fn set_joint_rotation(bone_index: usize, rx: f32, ry: f32, rz: f32) {
 
 #[wasm_bindgen]
 pub fn set_joint_position_editor(bone_index: usize, x: f32, y: f32, z: f32) {
-    use crate::bone_hierarchy::BoneId;
     GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
@@ -549,25 +551,11 @@ pub fn set_joint_position_editor(bone_index: usize, x: f32, y: f32, z: f32) {
                         return;
                     }
 
-                    // Reuse mapping logic (duplicated for now to avoid refactor complexity)
-                    let (bone_id, chain) = match bone_index {
-                        // IK Chains
-                        6 => (BoneId::LeftForearm, vec![BoneId::LeftShoulder, BoneId::LeftUpperArm, BoneId::LeftForearm]),
-                        9 => (BoneId::RightForearm, vec![BoneId::RightShoulder, BoneId::RightUpperArm, BoneId::RightForearm]),
-                        12 => (BoneId::LeftShin, vec![BoneId::LeftThigh, BoneId::LeftShin]),
-                        15 => (BoneId::RightShin, vec![BoneId::RightThigh, BoneId::RightShin]),
-                        3 => (BoneId::Head, vec![BoneId::Spine, BoneId::Neck, BoneId::Head]),
-                        1 => (BoneId::Spine, vec![BoneId::Spine]),
-                        2 => (BoneId::Neck, vec![BoneId::Neck]),
-
-                        // FK Bones
-                        5 => (BoneId::LeftUpperArm, vec![]),
-                        8 => (BoneId::RightUpperArm, vec![]),
-                        4 => (BoneId::LeftShoulder, vec![]),
-                        7 => (BoneId::RightShoulder, vec![]),
-                        11 => (BoneId::LeftThigh, vec![]),
-                        14 => (BoneId::RightThigh, vec![]),
-                        _ => return, // Not modifiable by position
+                    // Reuse mapping logic
+                    let (bone_id, chain) = if let Some(res) = get_bone_and_chain(bone_index) {
+                        res
+                    } else {
+                        return;
                     };
 
                     if !chain.is_empty() {

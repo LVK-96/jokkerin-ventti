@@ -19,8 +19,10 @@ import init, {
     set_exercise,
     update_skeleton,
 } from "../../wasm/pkg/jokkerin_ventti_wasm";
-import { initCameraControls, updateCameraFromInput, setCameraEnabled, getCameraState } from '../camera';
+import { initCameraControls, updateCameraFromInput, setCameraEnabled } from '../camera';
 import { animationMap } from '../animations';
+import { initHistory, saveUndoState, undo, redo, clearHistory } from './history';
+import { drawGizmo } from './overlay';
 
 // --- State ---
 let currentExerciseName = '';
@@ -31,17 +33,6 @@ let hoveredJoint: number | null = null;
 let dragStartX = 0;
 let dragStartY = 0;
 let lastTime = 0;
-
-// Undo/Redo
-interface UndoState {
-    keyframeIndex: number;
-    poseJson: string;
-    selectedJoint: number | null;
-}
-const undoStack: UndoState[] = [];
-const redoStack: UndoState[] = [];
-const MAX_UNDO_STATES = 10;
-
 
 const JOINT_NAMES = [
     'Hips', 'Neck', 'Neck (Top)', 'Head',
@@ -58,6 +49,27 @@ async function initEditor() {
     try {
         await init_gpu('gpu-canvas');
         console.log('WebGPU initialized');
+
+        // Initialize history
+        initHistory({
+            getKeyframeIndex: () => currentKeyframe,
+            getPoseJson: () => export_animation_json(),
+            getSelectedJoint: () => selectedJoint,
+            loadPose: (json) => {
+                load_animation(json);
+                enter_editor_mode();
+            },
+            setKeyframeIndex: (idx) => {
+                currentKeyframe = idx;
+                set_editor_keyframe(idx);
+            },
+            setSelectedJoint: (idx) => {
+                selectedJoint = idx;
+            },
+            onHistoryRestore: () => {
+                updateUI();
+            }
+        });
 
         // Initialize camera
         const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
@@ -116,8 +128,7 @@ function loadExercise(name: string) {
 
     currentKeyframe = 0;
     selectedJoint = null;
-    undoStack.length = 0;
-    redoStack.length = 0;
+    clearHistory();
 
     updateUI();
 }
@@ -392,8 +403,6 @@ function onKeyDown(e: KeyboardEvent) {
 
 // --- Logic ---
 
-// --- Logic ---
-
 function getLogicalJointPositions(): Float32Array | number[] | null {
     const raw = get_joint_screen_positions();
     if (!raw || raw.length === 0) return null;
@@ -476,51 +485,6 @@ function copyJson() {
     }
 }
 
-// --- Undo/Redo ---
-
-function saveUndoState() {
-    try {
-        const json = export_animation_json();
-        undoStack.push({ keyframeIndex: currentKeyframe, poseJson: json, selectedJoint });
-        if (undoStack.length > MAX_UNDO_STATES) undoStack.shift();
-        redoStack.length = 0;
-    } catch { }
-}
-
-function undo() {
-    if (!undoStack.length) return;
-    try {
-        const currentHook = export_animation_json();
-        redoStack.push({ keyframeIndex: currentKeyframe, poseJson: currentHook, selectedJoint });
-
-        const state = undoStack.pop()!;
-        load_animation(state.poseJson);
-        enter_editor_mode();
-        currentKeyframe = state.keyframeIndex;
-        set_editor_keyframe(currentKeyframe);
-        selectedJoint = state.selectedJoint;
-
-        updateUI();
-    } catch { }
-}
-
-function redo() {
-    if (!redoStack.length) return;
-    try {
-        const currentHook = export_animation_json();
-        undoStack.push({ keyframeIndex: currentKeyframe, poseJson: currentHook, selectedJoint });
-
-        const state = redoStack.pop()!;
-        load_animation(state.poseJson);
-        enter_editor_mode();
-        currentKeyframe = state.keyframeIndex;
-        set_editor_keyframe(currentKeyframe);
-        selectedJoint = state.selectedJoint;
-
-        updateUI();
-    } catch { }
-}
-
 // --- UI Updates ---
 
 function updateUI() {
@@ -540,102 +504,3 @@ function updateUI() {
 
 // Start
 initEditor();
-
-// --- Gizmo ---
-function drawGizmo(ctx: CanvasRenderingContext2D) {
-    console.log("Drawing Gizmo");
-    ctx.fillStyle = 'purple'; ctx.fillRect(10, 10, 20, 20); // Test square
-
-    const { azimuth, elevation } = getCameraState();
-
-    // View Basis Calculation
-    // Camera Position C (spherical to cartesian)
-    // We only care about rotation.
-    // D (Direction from Camera to Target) is inward.
-    // Target - Camera.
-    // Let's assume Camera is at (sin(az)cos(el), sin(el), cos(az)cos(el))
-    // Looking at (0,0,0).
-    // Forward F = -CameraPos.normalized().
-
-    const cosEl = Math.cos(elevation);
-    const sinEl = Math.sin(elevation);
-
-    // Camera Pos Direction (Unit)
-    const cx = Math.sin(azimuth) * cosEl;
-    const cy = sinEl;
-    const cz = Math.cos(azimuth) * cosEl;
-
-    // Forward Vector (Camera -> Target)
-    // Note: In Three.js/OpenGL, Camera "Forward" is -Z (local).
-    // But "View Direction" is Target - Eye.
-    const fx = -cx;
-    const fy = -cy;
-    const fz = -cz;
-
-    // World Up is (0,1,0)
-    // Right = Cross(F, Up).Normalized
-    // Right = (fy*0 - fz*1, fz*0 - fx*0, fx*1 - fy*0)
-    //       = (-fz, 0, fx)
-    let rx = -fz;
-    let ry = 0;
-    let rz = fx;
-
-    // Normalize Right
-    const rLen = Math.sqrt(rx * rx + rz * rz);
-    if (rLen > 0.0001) {
-        rx /= rLen; rz /= rLen;
-    }
-
-    // Up = Cross(Right, Forward)
-    // Ux = ry*fz - rz*fy = 0 - rz*fy = -rz*fy
-    // Uy = rz*fx - rx*fz
-    // Uz = rx*fy - ry*fx = rx*fy
-
-    const ux = -rz * fy;
-    const uy = rz * fx - rx * fz;
-    const uz = rx * fy;
-
-    // Gizmo Center
-    const originX = 50;
-    const originY = ctx.canvas.height - 200; // Above legend (bottom bar 60 + legend ~100 + padding)
-    const axisLen = 40;
-
-    // Project Axes
-    // Dot Product with Right (Screen X) and Up (Screen Y, inverted)
-    // Screen X = Dot(Axis, Right)
-    // Screen Y = -Dot(Axis, Up) (Since screen Y is down)
-    // Correction:
-    // If I pan camera right, object moves left.
-    // If Right vector points Right on screen.
-    // If P is (1,0,0). ProjX = Dot(P, Right).
-    // If P is in direction of Right, it should be Positive X on screen.
-    // Yes.
-
-    const project = (ax: number, ay: number, az: number) => {
-        const px = ax * rx + ay * ry + az * rz;
-        const py = ax * ux + ay * uy + az * uz;
-        return [originX + px * axisLen, originY - py * axisLen]; // Y inverted for canvas
-    };
-
-    ctx.lineWidth = 3;
-    ctx.font = '12px sans-serif';
-    ctx.lineCap = 'round';
-
-    // X Axis (Red)
-    const [xx, xy] = project(1, 0, 0);
-    ctx.beginPath(); ctx.moveTo(originX, originY); ctx.lineTo(xx, xy);
-    ctx.strokeStyle = '#ff3333'; ctx.stroke();
-    ctx.fillStyle = '#ff3333'; ctx.fillText('X', xx, xy);
-
-    // Y Axis (Green)
-    const [yx, yy] = project(0, 1, 0);
-    ctx.beginPath(); ctx.moveTo(originX, originY); ctx.lineTo(yx, yy);
-    ctx.strokeStyle = '#33ff33'; ctx.stroke();
-    ctx.fillStyle = '#33ff33'; ctx.fillText('Y', yx, yy);
-
-    // Z Axis (Blue)
-    const [zx, zy] = project(0, 0, 1);
-    ctx.beginPath(); ctx.moveTo(originX, originY); ctx.lineTo(zx, zy);
-    ctx.strokeStyle = '#3366ff'; ctx.stroke();
-    ctx.fillStyle = '#3366ff'; ctx.fillText('Z', zx, zy);
-}

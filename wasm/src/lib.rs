@@ -8,6 +8,7 @@
 mod bench;
 mod bone_hierarchy;
 
+#[cfg(target_arch = "wasm32")]
 pub mod editor;
 #[cfg(target_arch = "wasm32")]
 pub mod gpu;
@@ -20,8 +21,16 @@ use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 // Shared global state
+// GPU_STATE is only available when compiling for wasm32 (browser)
+// On native targets, we use a stub type for compilation
+#[cfg(target_arch = "wasm32")]
 thread_local! {
     pub static GPU_STATE: RefCell<Option<gpu::GpuState>> = const { RefCell::new(None) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    pub static GPU_STATE: RefCell<Option<()>> = const { RefCell::new(None) };
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -9,10 +9,14 @@
     "watch:wasm": "cd wasm && cargo watch -s 'RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --target web --out-dir pkg --features portable_simd'",
     "build": "npm run build:wasm && tsc && vite build",
     "build:wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --target web --out-dir pkg --features portable_simd",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.50.1",
+    "@typescript-eslint/parser": "^8.50.1",
     "concurrently": "^9.2.1",
+    "eslint": "^9.39.2",
     "typescript": "latest",
     "vite": "latest",
     "vite-plugin-wasm-pack": "^0.1.12"
