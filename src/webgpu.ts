@@ -31,7 +31,7 @@ function animate(time: number): void {
     // Update camera from keyboard input
     updateCameraFromInput();
 
-    // Update skeleton animation based on current exercise
+    // Update skeleton animation
     update_skeleton();
 
     // Render the frame

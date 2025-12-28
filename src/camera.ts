@@ -17,6 +17,9 @@ let isDragging = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
 
+// Camera enabled state (disabled when editing joints)
+let cameraEnabled = true;
+
 // Sensitivity settings
 const KEYBOARD_SPEED = 0.03;    // Radians per frame when key held
 const MOUSE_SENSITIVITY = 0.005; // Radians per pixel dragged
@@ -27,6 +30,22 @@ const MAX_ELEVATION = 1.4;   // Don't go directly overhead
 
 // Track which keys are pressed
 const keysPressed: Set<string> = new Set();
+
+/**
+ * Enable or disable camera controls
+ */
+export function setCameraEnabled(enabled: boolean): void {
+    cameraEnabled = enabled;
+    if (!enabled) {
+        // Clear any held keys when disabling
+        keysPressed.clear();
+        isDragging = false;
+    }
+}
+
+export function getCameraState() {
+    return { azimuth, elevation };
+}
 
 /**
  * Initialize camera controls
@@ -85,6 +104,7 @@ function syncCamera(): void {
 // --- Event Handlers ---
 
 function onKeyDown(e: KeyboardEvent): void {
+    if (!cameraEnabled) return;
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         keysPressed.add(e.key);
         e.preventDefault();
@@ -96,6 +116,7 @@ function onKeyUp(e: KeyboardEvent): void {
 }
 
 function onPointerDown(e: PointerEvent): void {
+    if (!cameraEnabled) return;
     isDragging = true;
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;

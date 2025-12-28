@@ -8,33 +8,15 @@ import almostSoundUrl from './assets/almostSound.mp3';
 import shortBeepUrl from './assets/short_beep.mp3';
 import intermediateSoundUrl from './assets/intermediateSound.mp3';
 
-// Animation data - loaded as raw text for wasm parsing
-import jumpingJacksAnim from './assets/animations/jumping_jacks.json?raw';
-import lungesAnim from './assets/animations/lunges.json?raw';
-import squatJumpsAnim from './assets/animations/squat_jumps.json?raw';
-import parachuteJumpAnim from './assets/animations/parachute_jump.json?raw';
-import abCrunchAnim from './assets/animations/ab_crunch.json?raw';
-import backExtensionAnim from './assets/animations/back_extension.json?raw';
-import handLegTouchJumpAnim from './assets/animations/hand_leg_touch_jump.json?raw';
-import pushUpsAnim from './assets/animations/push_ups.json?raw';
-import sideMuscleAnim from './assets/animations/side_muscle.json?raw';
-import feetForwardJumpAnim from './assets/animations/feet_forward_jump.json?raw';
-import straightLegLeanAnim from './assets/animations/straight_leg_lean.json?raw';
-import backwardsLungeAnim from './assets/animations/backwards_lunge.json?raw';
-import oneLegJumpAnim from './assets/animations/one_leg_jump.json?raw';
-import crossedArmsSitupAnim from './assets/animations/crossed_arms_situp.json?raw';
-import acdcScissorJumpAnim from './assets/animations/acdc_scissor_jump.json?raw';
-import easierLegLeanAnim from './assets/animations/easier_leg_lean.json?raw';
-import legLiftRunningAnim from './assets/animations/leg_lift_running.json?raw';
-import oneLegSquatsAnim from './assets/animations/one_leg_squats.json?raw';
-import plankingAnim from './assets/animations/planking.json?raw';
-import burpeesAnim from './assets/animations/burpees.json?raw';
+// Animation data
+import { animationMap } from './animations';
 
 // Workout configuration
 const WORKOUT_JSON_PATH = workoutUrl;
 
 // State
 let exercises: Exercise[] = [];
+export let exerciseOrder: string[] = []; // Exercise names in workout order (for editor)
 let currentExercise = 0;
 let workoutStarted = false;
 let workoutDone = false;
@@ -76,6 +58,8 @@ async function loadWorkout(): Promise<void> {
     const workout: Workout = await response.json();
     exercises = workout.exercises;
     exerciseName = exercises[0].name;
+    // Populate exercise order for the keyframe editor
+    exerciseOrder = exercises.map(e => e.name);
 }
 
 async function requestWakeLock(): Promise<void> {
@@ -92,6 +76,82 @@ async function releaseWakeLock(): Promise<void> {
         wakeLock = null;
         console.log('Screen wake lock released');
     }
+}
+
+/**
+ * Attach the start button click handler.
+ * Uses { once: true } so it auto-removes after clicking.
+ * Must be called again when resetting the workout.
+ */
+function attachStartButtonHandler(startButton: HTMLButtonElement): void {
+    startButton.addEventListener('click', () => {
+        startButton.hidden = true;
+        pauseSound.play();
+
+        (document.getElementById('progress-bar-container') as HTMLElement).hidden = false;
+        (document.getElementById('progress-bar') as HTMLElement).hidden = false;
+        (document.getElementById('timer') as HTMLElement).hidden = false;
+        (document.getElementById('prevButton') as HTMLElement).hidden = false;
+        (document.getElementById('nextButton') as HTMLElement).hidden = false;
+
+        startWorkout();
+    }, { once: true });
+}
+
+/**
+ * Stop and reset the workout to initial state.
+ * Called when entering editor mode to ensure clean slate.
+ */
+export function stopAndResetWorkout(): void {
+    // Stop the interval timer
+    if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+    }
+
+    // Release wake lock
+    releaseWakeLock();
+
+    // Reset workout state
+    workoutStarted = false;
+    workoutDone = false;
+    // Don't reset currentExercise so we stay on the same exercise
+    // currentExercise = 0; 
+    currentSet = 0;
+    pauseTimer = 10;
+    workoutTimer = 0;
+    pauseState = true;
+    state = STATE_NEW_SET;
+
+    // Reset UI to initial state
+    const startButton = document.getElementById('startButton') as HTMLButtonElement;
+    const progressBarContainer = document.getElementById('progress-bar-container') as HTMLElement;
+    const progressBar = document.getElementById('progress-bar') as HTMLElement;
+    const timerEl = document.getElementById('timer') as HTMLElement;
+    const prevButton = document.getElementById('prevButton') as HTMLElement;
+    const nextButton = document.getElementById('nextButton') as HTMLElement;
+    const exerciseCountEl = document.getElementById('exercise-count') as HTMLElement;
+    const exerciseNameEl = document.getElementById('exercise-name') as HTMLElement;
+    const setCountEl = document.getElementById('set-count') as HTMLElement;
+
+    if (startButton) {
+        startButton.hidden = false;
+        // Re-attach click handler (the { once: true } removed it after first click)
+        attachStartButtonHandler(startButton);
+    }
+    if (progressBarContainer) progressBarContainer.hidden = true;
+    if (progressBar) progressBar.hidden = true;
+    if (timerEl) timerEl.hidden = true;
+    if (prevButton) prevButton.hidden = true;
+    if (nextButton) nextButton.hidden = true;
+    if (exerciseCountEl) exerciseCountEl.innerText = '';
+    if (exerciseNameEl && exercises.length > 0) exerciseNameEl.innerText = exercises[currentExercise].name;
+    if (setCountEl) setCountEl.innerText = '';
+
+    // Reset background color
+    document.body.style.backgroundColor = '#ffffff';
+
+    console.log('Workout stopped and reset');
 }
 
 function updateUI(): void {
@@ -377,43 +437,16 @@ async function init(): Promise<void> {
     await startEngine();
 
     // Load keyframe animations for exercises
-    load_animation(jumpingJacksAnim);
-    load_animation(lungesAnim);
-    load_animation(squatJumpsAnim);
-    load_animation(parachuteJumpAnim);
-    load_animation(abCrunchAnim);
-    load_animation(backExtensionAnim);
-    load_animation(handLegTouchJumpAnim);
-    load_animation(pushUpsAnim);
-    load_animation(sideMuscleAnim);
-    load_animation(feetForwardJumpAnim);
-    load_animation(straightLegLeanAnim);
-    load_animation(backwardsLungeAnim);
-    load_animation(oneLegJumpAnim);
-    load_animation(crossedArmsSitupAnim);
-    load_animation(acdcScissorJumpAnim);
-    load_animation(easierLegLeanAnim);
-    load_animation(legLiftRunningAnim);
-    load_animation(oneLegSquatsAnim);
-    load_animation(plankingAnim);
-    load_animation(burpeesAnim);
+    // Load keyframe animations for exercises
+    for (const animJson of animationMap.values()) {
+        load_animation(animJson);
+    }
 
     resetElementsWithText();
     storeElementsWithText();
 
     const startButton = document.getElementById('startButton') as HTMLButtonElement;
-    startButton.addEventListener('click', () => {
-        startButton.hidden = true;
-        pauseSound.play();
-
-        (document.getElementById('progress-bar-container') as HTMLElement).hidden = false;
-        (document.getElementById('progress-bar') as HTMLElement).hidden = false;
-        (document.getElementById('timer') as HTMLElement).hidden = false;
-        (document.getElementById('prevButton') as HTMLElement).hidden = false;
-        (document.getElementById('nextButton') as HTMLElement).hidden = false;
-
-        startWorkout();
-    }, { once: true });
+    attachStartButtonHandler(startButton);
 
     const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
     const nextButton = document.getElementById('nextButton') as HTMLButtonElement;

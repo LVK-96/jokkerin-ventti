@@ -3,13 +3,13 @@
 //! GPU init, shader compilation and skeleton rendering
 
 use static_assertions::const_assert_eq;
-use std::cell::RefCell;
+// RefCell moved to lib.rs
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
 use crate::bone_hierarchy::{RotationAnimationClip, RotationPose};
-use crate::skeleton::{RENDER_BONE_COUNT, Skeleton, SkinnedVertex, generate_bind_pose_mesh};
+use crate::skeleton::{RENDER_BONE_COUNT, SkinnedVertex, generate_bind_pose_mesh};
 use std::collections::HashMap;
 
 // Shared background/sky color
@@ -20,20 +20,18 @@ const SKY_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
-thread_local! {
-    static GPU_STATE: RefCell<Option<GpuState>> = const { RefCell::new(None) };
-}
+// GPU_STATE moved to lib.rs
 
 /// WGSL Uniform struct
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Uniforms {
-    view: [[f32; 4]; 4],       // 64 bytes
-    projection: [[f32; 4]; 4], // 64 bytes
-    time: f32,                 // 4 bytes
-    aspect: f32,               // 4 bytes
-    screen_height: f32,        // 4 bytes
-    _padding: [f32; 5],        // 20 bytes -> total 160 bytes
+pub struct Uniforms {
+    pub view: [[f32; 4]; 4],       // 64 bytes
+    pub projection: [[f32; 4]; 4], // 64 bytes
+    pub time: f32,                 // 4 bytes
+    pub aspect: f32,               // 4 bytes
+    pub screen_height: f32,        // 4 bytes
+    pub _padding: [f32; 5],        // 20 bytes -> total 160 bytes
 }
 const_assert_eq!(std::mem::size_of::<Uniforms>(), 160);
 
@@ -50,30 +48,34 @@ impl Default for Uniforms {
     }
 }
 
-struct GpuState {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
+pub struct GpuState {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub surface: wgpu::Surface<'static>,
+    pub config: wgpu::SurfaceConfiguration,
     // Render pipelines
-    skeleton_pipeline: wgpu::RenderPipeline,
-    grid_pipeline: wgpu::RenderPipeline,
+    pub skeleton_pipeline: wgpu::RenderPipeline,
+    pub grid_pipeline: wgpu::RenderPipeline,
     // GPU Buffers
-    vertex_buffer: wgpu::Buffer,
-    bone_uniform_buffer: wgpu::Buffer,
-    uniform_buffer: wgpu::Buffer,
+    pub vertex_buffer: wgpu::Buffer,
+    pub bone_uniform_buffer: wgpu::Buffer,
+    pub uniform_buffer: wgpu::Buffer,
     // Depth texture
     #[allow(dead_code)]
-    depth_texture: wgpu::Texture,
-    depth_view: wgpu::TextureView,
+    pub depth_texture: wgpu::Texture,
+    pub depth_view: wgpu::TextureView,
     // Bind groups
-    uniform_bind_group: wgpu::BindGroup,
-    bone_bind_group: wgpu::BindGroup,
+    pub uniform_bind_group: wgpu::BindGroup,
+    pub bone_bind_group: wgpu::BindGroup,
     // State
-    uniforms: Uniforms,
-    current_exercise_name: String,
-    animations: HashMap<String, RotationAnimationClip>,
-    vertex_count: u32,
+    pub uniforms: Uniforms,
+    pub current_exercise_name: String,
+    pub animations: HashMap<String, RotationAnimationClip>,
+    pub vertex_count: u32,
+    // Editor state
+    pub editor_mode: bool,
+    pub editor_keyframe_index: usize,
+    pub editor_clip: Option<RotationAnimationClip>,
 }
 
 /// Shader sources
@@ -461,8 +463,12 @@ pub async fn init_gpu(canvas_id: String) {
         current_exercise_name: "idle".to_string(),
         animations: HashMap::new(),
         vertex_count,
+        // Editor state - initially disabled
+        editor_mode: false,
+        editor_keyframe_index: 0,
+        editor_clip: None,
     };
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         *s.borrow_mut() = Some(state);
     });
 
@@ -485,7 +491,7 @@ pub fn resize_gpu(canvas_id: String) {
     canvas.set_width(width);
     canvas.set_height(height);
 
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             // Update surface configuration
@@ -516,7 +522,7 @@ pub fn resize_gpu(canvas_id: String) {
 /// Update time uniform (call each frame with delta time)
 #[wasm_bindgen]
 pub fn update_time_uniform(delta_ms: f32) {
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             state.uniforms.time += delta_ms / 1000.0;
@@ -535,7 +541,7 @@ pub fn update_time_uniform(delta_ms: f32) {
 /// distance: distance from target point
 #[wasm_bindgen]
 pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             // Target point (center of stickman)
@@ -573,7 +579,7 @@ pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
 /// Set the current exercise for animation
 #[wasm_bindgen]
 pub fn set_exercise(name: String) {
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             state.current_exercise_name = name.to_lowercase();
@@ -605,7 +611,7 @@ pub fn load_animation(json_data: String) -> Result<(), JsValue> {
             clip.keyframes.len()
         );
 
-        GPU_STATE.with(|s| {
+        crate::GPU_STATE.with(|s| {
             let mut state_ref = s.borrow_mut();
             if let Some(state) = state_ref.as_mut() {
                 state.animations.insert(clip.name.to_lowercase(), clip);
@@ -620,18 +626,32 @@ pub fn load_animation(json_data: String) -> Result<(), JsValue> {
 }
 /// Update skeleton animation based on current exercise and time
 /// Call this every frame before render_frame()
+/// In editor mode, displays the current keyframe's pose; otherwise animates.
 #[wasm_bindgen]
 pub fn update_skeleton() {
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let state_ref = s.borrow();
         if let Some(state) = state_ref.as_ref() {
-            let time = state.uniforms.time;
-
-            // Sample the animation clip for the current exercise
-            let skeleton = if let Some(clip) = state.animations.get(&state.current_exercise_name) {
-                clip.sample(time).to_skeleton()
+            let skeleton = if state.editor_mode {
+                // In editor mode: display the current keyframe's pose
+                if let Some(clip) = &state.editor_clip {
+                    if let Some(keyframe) = clip.keyframes.get(state.editor_keyframe_index) {
+                        // Clone the pose since to_skeleton() needs mutable access
+                        keyframe.pose.clone().to_skeleton()
+                    } else {
+                        RotationPose::bind_pose().to_skeleton()
+                    }
+                } else {
+                    RotationPose::bind_pose().to_skeleton()
+                }
             } else {
-                RotationPose::bind_pose().to_skeleton()
+                // Normal mode: sample animation based on time
+                let time = state.uniforms.time;
+                if let Some(clip) = state.animations.get(&state.current_exercise_name) {
+                    clip.sample(time).to_skeleton()
+                } else {
+                    RotationPose::bind_pose().to_skeleton()
+                }
             };
 
             // Compute bone matrices
@@ -650,7 +670,7 @@ pub fn update_skeleton() {
 /// Render a frame with the skeleton
 #[wasm_bindgen]
 pub fn render_frame() {
-    GPU_STATE.with(|s| {
+    crate::GPU_STATE.with(|s| {
         let state_ref = s.borrow();
         if let Some(state) = state_ref.as_ref() {
             let output = match state.surface.get_current_texture() {
@@ -714,3 +734,8 @@ pub fn render_frame() {
         }
     });
 }
+
+// Editor functions moved to editor.rs
+
+// export_animation_json moved to editor.rs
+pub fn dummy_placeholder() {}

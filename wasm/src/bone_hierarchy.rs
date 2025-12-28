@@ -291,6 +291,11 @@ impl RotationPose {
         }
     }
 
+    /// Mark all bones as needing recomputation
+    pub fn mark_all_dirty(&mut self) {
+        self.dirty = DirtyFlags::all_dirty();
+    }
+
     /// Get world position of a bone's end joint (computes FK if needed)
     pub fn get_position(&mut self, bone: BoneId) -> Vec3 {
         self.ensure_computed(bone);
@@ -358,10 +363,32 @@ impl RotationPose {
         }
         self.dirty.clear_all();
     }
+    pub fn apply_floor_constraint(&mut self) {
+        self.compute_all();
+        use crate::skeleton::BONE_RADIUS;
+
+        let mut min_y = self.root_position.y;
+        for i in 0..BoneId::COUNT {
+            min_y = min_y.min(self.world_positions[i].y);
+        }
+
+        // Also check hip offsets
+        let left_hip_y = self.root_position.y
+            + (self.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0)).y;
+        let right_hip_y = self.root_position.y
+            + (self.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0)).y;
+        min_y = min_y.min(left_hip_y).min(right_hip_y);
+
+        if min_y < BONE_RADIUS {
+            self.root_position.y += BONE_RADIUS - min_y;
+            self.mark_all_dirty();
+            self.compute_all(); // Update world positions for correct return values
+        }
+    }
 
     /// Convert to the old Skeleton format for rendering compatibility
     pub fn to_skeleton(&mut self) -> crate::skeleton::Skeleton {
-        self.compute_all();
+        self.apply_floor_constraint();
 
         use glam::Vec3A;
 
@@ -410,6 +437,114 @@ impl RotationPose {
         result.dirty = DirtyFlags::all_dirty();
 
         result
+    }
+
+    /// Apply IK to a chain of bones to reach a target position.
+    ///
+    /// # Arguments
+    /// * `chain` - List of bone IDs in the chain (parent to child/end-effector)
+    /// * `target` - Target world position for the end effector
+    pub fn apply_ik(&mut self, chain: &[BoneId], target: Vec3) {
+        if chain.is_empty() {
+            return;
+        }
+
+        // 1. Gather current world positions and bone lengths
+        let mut joints = Vec::with_capacity(chain.len() + 1);
+        let mut lengths = Vec::with_capacity(chain.len());
+
+        // Start position (parent of first bone in chain)
+        // If first bone is root, start is root pose.
+        // If first bone has parent, start is parent's end position.
+        // Actually, RotationPose's world_positions array stores the END position of each bone.
+        // So joint[0] should be the START of chain[0].
+        // The start of chain[0] is the END of chain[0].parent.
+
+        let start_bone = chain[0];
+        let root_pos = if let Some(parent) = BONE_HIERARCHY[start_bone.index()].parent {
+            self.get_position(parent)
+        } else {
+            self.root_position
+        };
+        joints.push(root_pos);
+
+        for &bone in chain {
+            joints.push(self.get_position(bone));
+            lengths.push(BONE_HIERARCHY[bone.index()].length);
+        }
+
+        // 2. Solve IK (FABRIK)
+        let solved_joints = crate::ik::solve_fabrik(joints, &lengths, target, 10, 0.001);
+
+        // 3. Update local rotations
+        // We iterate through the chain. For each bone, we align it to the vector between solved joints.
+
+        // We need to keep track of the cumulative parent rotation to compute local rotation.
+        // The parent of the first bone (chain[0]) is fixed (not modified by this IK).
+        let mut current_parent_rot = if let Some(parent) = BONE_HIERARCHY[start_bone.index()].parent
+        {
+            self.world_rotations[parent.index()]
+        } else {
+            Quat::IDENTITY
+        };
+
+        for (i, &bone) in chain.iter().enumerate() {
+            let def = &BONE_HIERARCHY[bone.index()];
+
+            // Vector from start of bone to end of bone (from solver)
+            let start_pos = solved_joints[i];
+            let end_pos = solved_joints[i + 1];
+            let target_vec = end_pos - start_pos;
+
+            if target_vec.length_squared() < 1e-6 {
+                continue;
+            }
+
+            // Target vector in parent's local space
+            // R_parent_world * R_local * Direction_local * Length = Target_vec_world
+            // R_local * Direction_local = R_parent_world^-1 * Target_vec_world / Length? No, just direction.
+            // Let TargetDir_local = R_parent_world^-1 * Target_vec_world.normalize()
+
+            let target_dir_local = current_parent_rot.inverse() * target_vec.normalize();
+            let default_dir = def.direction.normalize();
+
+            // Calculate rotation from default direction to target direction
+            // We use Quat::from_rotation_arc which gives the shortest rotation
+            let delta_rot = Quat::from_rotation_arc(default_dir, target_dir_local);
+
+            // Update local rotation
+            self.set_rotation(bone, delta_rot.normalize());
+
+            // Recompute THIS bone's world transform immediately so the next bone uses the correct parent rot
+            // We can't use self.compute_bone() optimally because it might check dirty flags or use old parent data if we aren't careful?
+            // Actually, we updated local_rot, marked dirty.
+            // compute_bone(bone) will use parent's world rotation (which we know is current_parent_rot).
+            // But wait, compute_bone reads parent world rotation from self.world_rotations array.
+            // Is self.world_rotations[parent] correct?
+            // For i=0: yes, parent is outside chain, unmodified.
+            // For i>0: parent is chain[i-1]. We just updated it in previous loop iteration.
+            // BUT we only updated its local rotation! We didn't call compute_bone on it yet (or did we?).
+            // We MUST update the world rotation of the current bone to serve as parent for the next.
+
+            // Let's compute it manually or call compute_bone.
+            // calling compute_bone is safer as it manages state.
+            // But we need to ensure parent is computed.
+
+            // Optimization: we calculate world_rot manually here to update `current_parent_rot` for next iteration.
+            // R_world = R_parent_world * R_local
+
+            // Update state
+            // self.world_positions[bone.index()] = end_pos;   // compute_bone does this (recalculates from rot)
+
+            // Note: solved "end_pos" might slightly differ from "computed pos" due to length constraint enforcement in compute_bone.
+            // FABRIK enforces lengths, so they should match.
+
+            // Let's force update this bone
+            self.compute_bone(bone);
+
+            // Prepare for next bone
+            current_parent_rot = self.world_rotations[bone.index()];
+        }
     }
 }
 

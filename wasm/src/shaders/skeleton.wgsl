@@ -19,7 +19,7 @@ const CAMERA_POS: vec3<f32> = vec3<f32>(2.5, 1.2, 3.0);
 
 
 // Bone matrices
-// 29 matrices: 13 cylinders + 1 head + 15 debug spheres
+// 29 matrices: 13 cylinders + 1 head + 15 debug spheres = 29
 @group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 29>;
 
 struct VertexInput {
@@ -103,7 +103,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
     // === Color Palette ===
     // Debug joints (indices 14-27): pink/magenta
-    if in.bone_index >= 14.0 {
+    // Debug joints (indices 14-27): pink/magenta
+    // Head (13): treated as normal bone
+    if (in.bone_index >= 14.0 && in.bone_index <= 28.0) {
         return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }
     
