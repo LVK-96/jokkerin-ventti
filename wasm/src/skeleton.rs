@@ -157,8 +157,9 @@ fn add_cylinder(
 
 // Helper to add a sphere
 fn add_sphere(vertices: &mut Vec<SkinnedVertex>, center: Vec3A, radius: f32, bone_idx: u32) {
-    let lat_segments = 8;
-    let lon_segments = 12;
+    // Higher segment counts for smoother sphere silhouette
+    let lat_segments = 16;
+    let lon_segments = 24;
 
     for i in 0..lat_segments {
         let theta1 = (i as f32 / lat_segments as f32) * std::f32::consts::PI;
