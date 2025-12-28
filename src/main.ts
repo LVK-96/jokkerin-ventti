@@ -11,6 +11,24 @@ import intermediateSoundUrl from './assets/intermediateSound.mp3';
 // Animation data - loaded as raw text for wasm parsing
 import jumpingJacksAnim from './assets/animations/jumping_jacks.json?raw';
 import lungesAnim from './assets/animations/lunges.json?raw';
+import squatJumpsAnim from './assets/animations/squat_jumps.json?raw';
+import parachuteJumpAnim from './assets/animations/parachute_jump.json?raw';
+import abCrunchAnim from './assets/animations/ab_crunch.json?raw';
+import backExtensionAnim from './assets/animations/back_extension.json?raw';
+import handLegTouchJumpAnim from './assets/animations/hand_leg_touch_jump.json?raw';
+import pushUpsAnim from './assets/animations/push_ups.json?raw';
+import sideMuscleAnim from './assets/animations/side_muscle.json?raw';
+import feetForwardJumpAnim from './assets/animations/feet_forward_jump.json?raw';
+import straightLegLeanAnim from './assets/animations/straight_leg_lean.json?raw';
+import backwardsLungeAnim from './assets/animations/backwards_lunge.json?raw';
+import oneLegJumpAnim from './assets/animations/one_leg_jump.json?raw';
+import crossedArmsSitupAnim from './assets/animations/crossed_arms_situp.json?raw';
+import acdcScissorJumpAnim from './assets/animations/acdc_scissor_jump.json?raw';
+import easierLegLeanAnim from './assets/animations/easier_leg_lean.json?raw';
+import legLiftRunningAnim from './assets/animations/leg_lift_running.json?raw';
+import oneLegSquatsAnim from './assets/animations/one_leg_squats.json?raw';
+import plankingAnim from './assets/animations/planking.json?raw';
+import burpeesAnim from './assets/animations/burpees.json?raw';
 
 // Workout configuration
 const WORKOUT_JSON_PATH = workoutUrl;
@@ -361,6 +379,24 @@ async function init(): Promise<void> {
     // Load keyframe animations for exercises
     load_animation(jumpingJacksAnim);
     load_animation(lungesAnim);
+    load_animation(squatJumpsAnim);
+    load_animation(parachuteJumpAnim);
+    load_animation(abCrunchAnim);
+    load_animation(backExtensionAnim);
+    load_animation(handLegTouchJumpAnim);
+    load_animation(pushUpsAnim);
+    load_animation(sideMuscleAnim);
+    load_animation(feetForwardJumpAnim);
+    load_animation(straightLegLeanAnim);
+    load_animation(backwardsLungeAnim);
+    load_animation(oneLegJumpAnim);
+    load_animation(crossedArmsSitupAnim);
+    load_animation(acdcScissorJumpAnim);
+    load_animation(easierLegLeanAnim);
+    load_animation(legLiftRunningAnim);
+    load_animation(oneLegSquatsAnim);
+    load_animation(plankingAnim);
+    load_animation(burpeesAnim);
 
     resetElementsWithText();
     storeElementsWithText();

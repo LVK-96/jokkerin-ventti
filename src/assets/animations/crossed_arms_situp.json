@@ -1,8 +1,8 @@
 {
   "$schema": "../../../schemas/animation.v2.schema.json",
   "version": 2,
-  "name": "jumping jacks",
-  "duration": 2.0,
+  "name": "crossed-arms situp",
+  "duration": 1.5,
   "keyframes": [
     {
       "time": 0.0,
@@ -15,17 +15,25 @@
         "hips": null,
         "spine": null,
         "head": null,
-        "left_upper_arm": null,
+        "left_upper_arm": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 27.928972
+        },
         "left_forearm": {
           "x": -0.0,
           "y": 0.0,
-          "z": 0.5354605
+          "z": 9.67703
         },
-        "right_upper_arm": null,
+        "right_upper_arm": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -27.928972
+        },
         "right_forearm": {
           "x": 0.0,
           "y": 0.0,
-          "z": -0.5354605
+          "z": -9.67703
         },
         "left_thigh": {
           "x": 0.0,
@@ -54,7 +62,7 @@
       "pose": {
         "root_position": [
           0.0,
-          0.70000005,
+          0.45000002,
           0.0
         ],
         "hips": null,
@@ -63,59 +71,22 @@
         "left_upper_arm": {
           "x": -0.0,
           "y": 0.0,
-          "z": -56.15996
+          "z": 27.928972
         },
         "left_forearm": {
-          "x": 0.0,
+          "x": -0.0,
           "y": 0.0,
-          "z": -4.67244
+          "z": 9.67702
         },
         "right_upper_arm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 56.15996
-        },
-        "right_forearm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 4.67244
-        },
-        "left_thigh": {
           "x": 0.0,
           "y": 0.0,
-          "z": -23.198595
+          "z": -27.928972
         },
-        "left_shin": null,
-        "right_thigh": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 23.198595
-        },
-        "right_shin": null
-      }
-    },
-    {
-      "time": 1.0,
-      "pose": {
-        "root_position": [
-          0.0,
-          0.55,
-          0.0
-        ],
-        "hips": null,
-        "spine": null,
-        "head": null,
-        "left_upper_arm": null,
-        "left_forearm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 0.5354605
-        },
-        "right_upper_arm": null,
         "right_forearm": {
           "x": 0.0,
           "y": 0.0,
-          "z": -0.5354605
+          "z": -9.67702
         },
         "left_thigh": {
           "x": 0.0,
@@ -140,11 +111,11 @@
       }
     },
     {
-      "time": 1.5,
+      "time": 1.2,
       "pose": {
         "root_position": [
           0.0,
-          0.70000005,
+          0.55,
           0.0
         ],
         "hips": null,
@@ -153,35 +124,43 @@
         "left_upper_arm": {
           "x": -0.0,
           "y": 0.0,
-          "z": -56.15996
+          "z": 27.928972
         },
         "left_forearm": {
-          "x": 0.0,
+          "x": -0.0,
           "y": 0.0,
-          "z": -4.67244
+          "z": 9.67703
         },
         "right_upper_arm": {
-          "x": -0.0,
+          "x": 0.0,
           "y": 0.0,
-          "z": 56.15996
+          "z": -27.928972
         },
         "right_forearm": {
-          "x": -0.0,
+          "x": 0.0,
           "y": 0.0,
-          "z": 4.67244
+          "z": -9.67703
         },
         "left_thigh": {
           "x": 0.0,
           "y": 0.0,
-          "z": -23.198595
+          "z": -5.0767326
         },
-        "left_shin": null,
+        "left_shin": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 5.0767326
+        },
         "right_thigh": {
           "x": -0.0,
           "y": 0.0,
-          "z": 23.198595
+          "z": 5.0767326
         },
-        "right_shin": null
+        "right_shin": {
+          "x": -0.0,
+          "y": -0.0,
+          "z": -5.0767326
+        }
       }
     }
   ]

@@ -6,6 +6,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod bench;
+mod bone_hierarchy;
 #[cfg(target_arch = "wasm32")]
 mod gpu;
 mod math;

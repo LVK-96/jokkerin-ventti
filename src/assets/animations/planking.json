@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/animation.v2.schema.json",
   "version": 2,
-  "name": "jumping jacks",
+  "name": "planking",
   "duration": 2.0,
   "keyframes": [
     {
@@ -9,7 +9,7 @@
       "pose": {
         "root_position": [
           0.0,
-          0.55,
+          0.25,
           0.0
         ],
         "hips": null,
@@ -47,51 +47,6 @@
           "y": -0.0,
           "z": -5.0767326
         }
-      }
-    },
-    {
-      "time": 0.5,
-      "pose": {
-        "root_position": [
-          0.0,
-          0.70000005,
-          0.0
-        ],
-        "hips": null,
-        "spine": null,
-        "head": null,
-        "left_upper_arm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": -56.15996
-        },
-        "left_forearm": {
-          "x": 0.0,
-          "y": 0.0,
-          "z": -4.67244
-        },
-        "right_upper_arm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 56.15996
-        },
-        "right_forearm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 4.67244
-        },
-        "left_thigh": {
-          "x": 0.0,
-          "y": 0.0,
-          "z": -23.198595
-        },
-        "left_shin": null,
-        "right_thigh": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 23.198595
-        },
-        "right_shin": null
       }
     },
     {
@@ -99,7 +54,7 @@
       "pose": {
         "root_position": [
           0.0,
-          0.55,
+          0.27,
           0.0
         ],
         "hips": null,
@@ -137,51 +92,6 @@
           "y": -0.0,
           "z": -5.0767326
         }
-      }
-    },
-    {
-      "time": 1.5,
-      "pose": {
-        "root_position": [
-          0.0,
-          0.70000005,
-          0.0
-        ],
-        "hips": null,
-        "spine": null,
-        "head": null,
-        "left_upper_arm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": -56.15996
-        },
-        "left_forearm": {
-          "x": 0.0,
-          "y": 0.0,
-          "z": -4.67244
-        },
-        "right_upper_arm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 56.15996
-        },
-        "right_forearm": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 4.67244
-        },
-        "left_thigh": {
-          "x": 0.0,
-          "y": 0.0,
-          "z": -23.198595
-        },
-        "left_shin": null,
-        "right_thigh": {
-          "x": -0.0,
-          "y": 0.0,
-          "z": 23.198595
-        },
-        "right_shin": null
       }
     }
   ]

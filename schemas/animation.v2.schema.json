@@ -1,0 +1,102 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Animation Clip (Rotation V2 - Quaternion/Euler Based)",
+    "type": "object",
+    "properties": {
+        "version": {
+            "const": 2
+        },
+        "name": {
+            "type": "string"
+        },
+        "duration": {
+            "type": "number"
+        },
+        "keyframes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "time": {
+                        "type": "number"
+                    },
+                    "pose": {
+                        "type": "object",
+                        "title": "Pose (Rotations)",
+                        "properties": {
+                            "root_position": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                },
+                                "minItems": 3,
+                                "maxItems": 3
+                            },
+                            "hips": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "spine": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "head": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "left_upper_arm": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "left_forearm": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "right_upper_arm": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "right_forearm": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "left_thigh": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "left_shin": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "right_thigh": {
+                                "$ref": "#/definitions/euler"
+                            },
+                            "right_shin": {
+                                "$ref": "#/definitions/euler"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "required": [
+                    "time",
+                    "pose"
+                ]
+            }
+        }
+    },
+    "required": [
+        "name",
+        "duration",
+        "keyframes",
+        "version"
+    ],
+    "definitions": {
+        "euler": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                }
+            },
+            "additionalProperties": false
+        }
+    }
+}

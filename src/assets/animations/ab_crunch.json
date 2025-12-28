@@ -1,0 +1,178 @@
+{
+    "$schema": "../../../schemas/animation.v2.schema.json",
+    "version": 2,
+    "name": "ab crunch",
+    "duration": 1.5,
+    "keyframes": [
+        {
+            "time": 0.0,
+            "pose": {
+                "root_position": [
+                    0.0,
+                    0.15,
+                    0.4
+                ],
+                "hips": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 120
+                },
+                "left_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 45
+                },
+                "right_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -120
+                },
+                "right_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -45
+                }
+            }
+        },
+        {
+            "time": 0.5,
+            "pose": {
+                "root_position": [
+                    0.0,
+                    0.20,
+                    0.35
+                ],
+                "hips": {
+                    "x": -60,
+                    "y": 0,
+                    "z": 0
+                },
+                "spine": {
+                    "x": 30,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 120
+                },
+                "left_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 45
+                },
+                "right_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -120
+                },
+                "right_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -45
+                }
+            }
+        },
+        {
+            "time": 1.2,
+            "pose": {
+                "root_position": [
+                    0.0,
+                    0.15,
+                    0.4
+                ],
+                "hips": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_thigh": {
+                    "x": 90,
+                    "y": 0,
+                    "z": 0
+                },
+                "right_shin": {
+                    "x": -90,
+                    "y": 0,
+                    "z": 0
+                },
+                "left_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 120
+                },
+                "left_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 45
+                },
+                "right_upper_arm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -120
+                },
+                "right_forearm": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -45
+                }
+            }
+        }
+    ]
+}

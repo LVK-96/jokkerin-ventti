@@ -8,9 +8,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
-use crate::skeleton::{
-    AnimationClip, RENDER_BONE_COUNT, Skeleton, SkinnedVertex, generate_bind_pose_mesh,
-};
+use crate::bone_hierarchy::{RotationAnimationClip, RotationPose};
+use crate::skeleton::{RENDER_BONE_COUNT, Skeleton, SkinnedVertex, generate_bind_pose_mesh};
 use std::collections::HashMap;
 
 // Shared background/sky color
@@ -73,7 +72,7 @@ struct GpuState {
     // State
     uniforms: Uniforms,
     current_exercise_name: String,
-    animations: HashMap<String, AnimationClip>,
+    animations: HashMap<String, RotationAnimationClip>,
     vertex_count: u32,
 }
 
@@ -587,26 +586,38 @@ pub fn set_exercise(name: String) {
 /// Call this during startup for each exercise you want to animate
 #[wasm_bindgen]
 pub fn load_animation(json_data: String) -> Result<(), JsValue> {
-    let clip: AnimationClip = serde_json::from_str(&json_data)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse animation: {}", e)))?;
+    // Parse into a generic Value first to check the version
+    let v: serde_json::Value = serde_json::from_str(&json_data)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
 
-    log::info!(
-        "Loaded animation: {} ({} keyframes, {:.1}s duration)",
-        clip.name,
-        clip.keyframes.len(),
-        clip.duration
-    );
+    // Check version
+    let is_v2 = v.get("version").and_then(|val| val.as_u64()) == Some(2);
 
-    GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            state.animations.insert(clip.name.to_lowercase(), clip);
-        }
-    });
+    if is_v2 {
+        // Version 2: Rotation-based animation
+        // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
+        let clip = RotationAnimationClip::from_json(&json_data)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse V2 animation: {}", e)))?;
 
-    Ok(())
+        log::info!(
+            "Loaded V2 (Rotation) animation: {} ({} keyframes)",
+            clip.name,
+            clip.keyframes.len()
+        );
+
+        GPU_STATE.with(|s| {
+            let mut state_ref = s.borrow_mut();
+            if let Some(state) = state_ref.as_mut() {
+                state.animations.insert(clip.name.to_lowercase(), clip);
+            }
+        });
+        Ok(())
+    } else {
+        Err(JsValue::from_str(
+            "Only Version 2 (Rotation) animations are supported. Please upgrade your animation files.",
+        ))
+    }
 }
-
 /// Update skeleton animation based on current exercise and time
 /// Call this every frame before render_frame()
 #[wasm_bindgen]
@@ -618,9 +629,9 @@ pub fn update_skeleton() {
 
             // Sample the animation clip for the current exercise
             let skeleton = if let Some(clip) = state.animations.get(&state.current_exercise_name) {
-                clip.sample(time)
+                clip.sample(time).to_skeleton()
             } else {
-                Skeleton::bind_pose()
+                RotationPose::bind_pose().to_skeleton()
             };
 
             // Compute bone matrices
