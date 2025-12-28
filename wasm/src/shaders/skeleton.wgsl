@@ -1,16 +1,22 @@
 // Shader for 3D stickman figure with skeletal animation (skinning)
+// Enhanced with Blinn-Phong specular, Fresnel rim lighting, and improved colors
 
+// Matches Rust Uniforms struct layout (160 bytes total)
 struct Uniforms {
-    view: mat4x4<f32>,
-    projection: mat4x4<f32>,
-    time: f32,
-    aspect: f32,
-    screen_height: f32,
-    _padding: f32,
-    _padding4: vec4<f32>,
+    view: mat4x4<f32>,          // bytes 0-63
+    projection: mat4x4<f32>,    // bytes 64-127
+    time: f32,                  // byte 128
+    aspect: f32,                // byte 132
+    screen_height: f32,         // byte 136
+    _padding: f32,              // byte 140
+    _padding4: vec4<f32>,       // bytes 144-159
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+// Camera position (constant - matches the position in gpu.rs)
+const CAMERA_POS: vec3<f32> = vec3<f32>(2.5, 1.2, 3.0);
+
 
 // Bone matrices
 // 29 matrices: 13 cylinders + 1 head + 15 debug spheres
@@ -26,7 +32,7 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_pos: vec3<f32>,
-    @location(2) bone_index: f32, // Passed to fragment for coloring debug joints
+    @location(2) bone_index: f32,
 }
 
 @vertex
@@ -49,23 +55,78 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Light setup
-    let light_dir = normalize(vec3<f32>(0.5, 0.8, 0.5));
     let normal = normalize(in.world_normal);
+    let view_dir = normalize(CAMERA_POS - in.world_pos);
     
-    let ndotl = max(dot(normal, light_dir), 0.0);
-    let ambient = 0.3;
-    let diffuse = ndotl * 0.7;
+    // === Light Setup ===
+    let light_dir = normalize(vec3<f32>(0.4, 0.7, 0.5));
+    let back_light_dir = -light_dir; // For transmittance
     
-    // Color logic
-    // Bone indices 14-28 are debug spheres (pink)
+    // ============================================
+    // SUBSURFACE SCATTERING APPROXIMATION
+    // ============================================
+    // Reference: GPU Gems 3, "Real-Time Approximations to Subsurface Scattering"
+    
+    // --- Wrap Diffuse ---
+    // Softens the terminator (light/dark boundary) like real skin/wax
+    let wrap = 0.5;  // How much light wraps around the surface
+    let ndotl_raw = dot(normal, light_dir);
+    let ndotl_wrap = (ndotl_raw + wrap) / (1.0 + wrap);
+    let diffuse = max(ndotl_wrap, 0.0);
+    
+    // --- Transmittance (Light passing through) ---
+    // Simulates light entering the back and scattering through
+    let transmittance_power = 3.0;
+    let transmittance_scale = 0.6;
+    let vdotl = dot(view_dir, -light_dir);  // View aligned with light = more transmission
+    let transmittance = pow(saturate(vdotl), transmittance_power) * transmittance_scale;
+    
+    // --- Thickness approximation from curvature ---
+    // Convex surfaces (spheres) appear thinner at edges
+    let ndotv = max(dot(normal, view_dir), 0.0);
+    let thickness = pow(ndotv, 0.8);  // Center = thick, edges = thin
+    
+    // SSS color - light that scatters takes on material color
+    // Using a subtle warm/red tint like subsurface blood or internal glow
+    let sss_color = vec3<f32>(0.15, 0.08, 0.05);  // Deep warm glow
+    let sss_intensity = transmittance * (1.0 - thickness) * 0.8;
+    
+    // --- Fresnel Rim (edge glow) ---
+    let fresnel = pow(1.0 - ndotv, 3.0);
+    let rim_color = vec3<f32>(0.12, 0.15, 0.25);  // Cool blue edge
+    let rim = fresnel * 0.4;
+    
+    // --- Specular (tight highlight) ---
+    let half_vec = normalize(light_dir + view_dir);
+    let ndoth = max(dot(normal, half_vec), 0.0);
+    let specular = pow(ndoth, 80.0) * 0.7;
+    
+    // === Color Palette ===
+    // Debug spheres: magenta
     if in.bone_index >= 14.0 {
-        return vec4<f32>(1.0, 0.0, 1.0, 1.0); // Pink for debug joints
+        return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }
     
-    // Normal geometry: dark gray
-    let base_color = vec3<f32>(0.1, 0.1, 0.1);
-    let lit_color = base_color * (ambient + diffuse);
+    // Base color: very dark (nearly black with subtle blue)
+    let base_color = vec3<f32>(0.02, 0.02, 0.04);
+    
+    // === Final Composition ===
+    var lit_color = base_color;
+    
+    // Diffuse contribution (subtle, keeps it dark)
+    lit_color += base_color * diffuse * 0.3;
+    
+    // SSS glow (the magic - internal light scattering)
+    lit_color += sss_color * sss_intensity;
+    
+    // Rim light (Fresnel edge)
+    lit_color += rim_color * rim;
+    
+    // Specular highlight
+    lit_color += vec3<f32>(0.8, 0.85, 1.0) * specular;
+    
+    // Tone mapping (preserve contrast)
+    lit_color = lit_color / (lit_color + vec3<f32>(0.3));
     
     return vec4<f32>(lit_color, 1.0);
 }
