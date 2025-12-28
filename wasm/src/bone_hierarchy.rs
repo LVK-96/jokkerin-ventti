@@ -898,10 +898,23 @@ mod tests {
     #[test]
     fn test_bind_pose_positions() {
         let mut pose = RotationPose::bind_pose();
+        // Force computation to ensure world positions are ready
+        pose.compute_all();
+
+        let hips_pos = pose.get_position(BoneId::Hips);
+
+        // Hips should be at DEFAULT_HIPS_Y
+        assert!(
+            (hips_pos.y - DEFAULT_HIPS_Y).abs() < EPSILON,
+            "Hips Y should be {}, got {}",
+            DEFAULT_HIPS_Y,
+            hips_pos.y
+        );
+
         let skeleton = pose.to_skeleton();
 
         // Hips should be at root position
-        assert!((skeleton.hips.y - 0.55).abs() < 0.01);
+        assert!((skeleton.hips.y - DEFAULT_HIPS_Y).abs() < 0.01);
 
         // Head should be above hips
         assert!(skeleton.head.y > skeleton.hips.y);
@@ -909,6 +922,149 @@ mod tests {
         // Feet should be near ground
         assert!(skeleton.left_foot.y < 0.1);
         assert!(skeleton.right_foot.y < 0.1);
+    }
+
+    #[test]
+    fn test_floor_constraint() {
+        let mut pose = RotationPose::bind_pose();
+        // Move root way below floor
+        pose.set_root_position(Vec3::new(0.0, -2.0, 0.0));
+        pose.compute_all();
+
+        // Verify it's below floor
+        assert!(pose.get_position(BoneId::Hips).y < 0.0);
+
+        // Apply constraint
+        pose.apply_floor_constraint();
+
+        // Should be lifted
+        // The lowest point should be at BONE_RADIUS (approx 0.05)
+        let hips_y = pose.get_position(BoneId::Hips).y;
+        assert!(hips_y > 0.0, "Hips should be above floor, got {}", hips_y);
+
+        // More precise check: calculate min y of all bones
+        let mut min_y = f32::MAX;
+        for bone in BoneId::ALL {
+            min_y = min_y.min(pose.get_position(bone).y);
+        }
+        // crate::skeleton::BONE_RADIUS is usually 0.05.
+        // We ensure that we are at least non-negative.
+        assert!(min_y >= 0.0, "Lowest bone should be above 0, got {}", min_y);
+    }
+
+    #[test]
+    fn test_ik_preserves_chain_lengths() {
+        let mut pose = RotationPose::bind_pose();
+        let chain = [
+            BoneId::LeftShoulder,
+            BoneId::LeftUpperArm,
+            BoneId::LeftForearm,
+        ];
+
+        // Get initial lengths
+        // Note: get_position returns the END of the bone.
+        // So LeftShoulder pos is the shoulder joint.
+        // LeftUpperArm pos is the elbow joint.
+        // LeftForearm pos is the hand joint.
+        let pos_shoulder = pose.get_position(BoneId::LeftShoulder);
+        let pos_elbow = pose.get_position(BoneId::LeftUpperArm);
+        let pos_hand = pose.get_position(BoneId::LeftForearm);
+
+        let len_upper = pos_shoulder.distance(pos_elbow);
+        let len_forearm = pos_elbow.distance(pos_hand);
+
+        // Apply IK to a new target
+        let target = Vec3::new(0.5, 0.5, 0.5);
+        pose.apply_ik(&chain, target);
+
+        let new_pos_shoulder = pose.get_position(BoneId::LeftShoulder);
+        let new_pos_elbow = pose.get_position(BoneId::LeftUpperArm);
+        let new_pos_hand = pose.get_position(BoneId::LeftForearm);
+
+        let new_len_upper = new_pos_shoulder.distance(new_pos_elbow);
+        let new_len_forearm = new_pos_elbow.distance(new_pos_hand);
+
+        assert!(
+            (len_upper - new_len_upper).abs() < 1e-4,
+            "Upper arm length changed: {} -> {}",
+            len_upper,
+            new_len_upper
+        );
+        assert!(
+            (len_forearm - new_len_forearm).abs() < 1e-4,
+            "Forearm length changed: {} -> {}",
+            len_forearm,
+            new_len_forearm
+        );
+    }
+
+    #[test]
+    fn test_animation_interpolation() {
+        let pose_a = RotationPose::bind_pose();
+        let mut pose_b = RotationPose::bind_pose();
+
+        // Rotate spine 90 degrees around X in pose B
+        pose_b.set_rotation(
+            BoneId::Spine,
+            Quat::from_rotation_x(std::f32::consts::PI / 2.0),
+        );
+
+        let kf_a = RotationKeyframe {
+            time: 0.0,
+            pose: pose_a,
+        };
+        let kf_b = RotationKeyframe {
+            time: 1.0,
+            pose: pose_b,
+        };
+
+        let clip = RotationAnimationClip {
+            name: "lerp_test".to_string(),
+            duration: 1.0,
+            keyframes: vec![kf_a, kf_b],
+        };
+
+        // Sample at 0.5
+        let sample = clip.sample(0.5);
+
+        let spine_rot = sample.local_rotations[BoneId::Spine.index()];
+        let (axis, angle) = spine_rot.to_axis_angle();
+
+        // Should be roughly 45 degrees (PI/4) around X
+        // Depending on quaternion normalization/shortest path, axis might be X or -X.
+        let expected_angle = std::f32::consts::PI / 4.0;
+        
+        // If axis is close to X, angle should be ~45.
+        // If axis is close to -X, angle should be ~-45 (which is 315, or represented as 45 around -X).
+        // to_axis_angle usually returns positive angle and flips axis.
+        
+        if (axis - Vec3::X).length() < 0.01 {
+            assert!(
+                (angle - expected_angle).abs() < 0.01,
+                "Angle should be 45 deg, got {}",
+                angle.to_degrees()
+            );
+        } else if (axis - Vec3::NEG_X).length() < 0.01 {
+             // If it picked -X, then it might be representing -45 degrees?
+             // But bind pose is 0. Target is +90. Halfway is +45. 
+             // It shouldn't be negative unless it went the long way? Slerp goes shortest way.
+             // So it should be +45 around X.
+             // Maybe to_axis_angle did something weird or my expectation of "X" is wrong?
+             // Let's just check the rotation applied to a vector.
+             
+             // panic!("Unexpected rotation axis: {}", axis);
+        }
+        
+        // Safer check: apply rotation to Y axis (Spine direction)
+        // Bind pose (0 rot): Y points up (0, 1, 0)
+        // Target (90 rot X): Y points to Z (0, 0, 1) [Right hand rule: X is right. Y up. Z forward (out of screen?)]
+        // Wait, standard coordinate systems...
+        // If X is Right, Y is Up. 90 deg around X: Y -> Z.
+        // Halfway (45 deg): Y -> (0, 0.707, 0.707).
+        
+        let rotated_y = spine_rot * Vec3::Y;
+        assert!((rotated_y.y - 0.707).abs() < 0.01, "Rotated Y.y should be ~0.707, got {}", rotated_y.y);
+        assert!((rotated_y.z - 0.707).abs() < 0.01, "Rotated Y.z should be ~0.707, got {}", rotated_y.z);
     }
 
     #[test]
