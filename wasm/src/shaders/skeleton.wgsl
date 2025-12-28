@@ -102,7 +102,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular = pow(ndoth, 80.0) * 0.7;
     
     // === Color Palette ===
-    // Debug spheres: magenta
+    // Debug joints (indices 14-27): pink/magenta
     if in.bone_index >= 14.0 {
         return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }

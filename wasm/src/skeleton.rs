@@ -271,7 +271,6 @@ pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
     add_sphere(&mut vertices, s.right_hip, JOINT_RADIUS, 25);
     add_sphere(&mut vertices, s.right_knee, JOINT_RADIUS, 26);
     add_sphere(&mut vertices, s.right_foot, JOINT_RADIUS, 27);
-    add_sphere(&mut vertices, s.head, JOINT_RADIUS, 28);
 
     vertices
 }

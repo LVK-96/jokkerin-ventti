@@ -530,6 +530,47 @@ pub fn update_time_uniform(delta_ms: f32) {
     });
 }
 
+/// Update camera from spherical coordinates (orbit camera)
+/// azimuth: horizontal angle in radians (0 = front, PI/2 = right side)
+/// elevation: vertical angle in radians (0 = level, PI/2 = top-down)
+/// distance: distance from target point
+#[wasm_bindgen]
+pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
+    GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            // Target point (center of stickman)
+            let target = glam::Vec3::new(0.0, 0.5, 0.0);
+
+            // Convert spherical to Cartesian coordinates
+            // elevation: 0 = horizontal, positive = looking down from above
+            let cos_elev = elevation.cos();
+            let sin_elev = elevation.sin();
+            let cos_azim = azimuth.cos();
+            let sin_azim = azimuth.sin();
+
+            // Camera position relative to target
+            let eye = target
+                + glam::Vec3::new(
+                    distance * cos_elev * sin_azim, // X
+                    distance * sin_elev,            // Y (height)
+                    distance * cos_elev * cos_azim, // Z
+                );
+
+            // Update view matrix
+            let up = glam::Vec3::Y;
+            state.uniforms.view = glam::Mat4::look_at_rh(eye, target, up).to_cols_array_2d();
+
+            // Write updated uniforms to GPU
+            state.queue.write_buffer(
+                &state.uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[state.uniforms]),
+            );
+        }
+    });
+}
+
 /// Set the current exercise for animation
 #[wasm_bindgen]
 pub fn set_exercise(name: String) {

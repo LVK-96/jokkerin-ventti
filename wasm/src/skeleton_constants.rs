@@ -10,21 +10,22 @@ use glam::Vec3A;
 
 /// Default skeleton pose - the standard T-pose used as reference for bone lengths.
 /// All keyframe animations should maintain these bone lengths (±tolerance).
-pub const DEFAULT_HIPS: Vec3A = Vec3A::new(0.0, 0.5, 0.0);
-pub const DEFAULT_NECK: Vec3A = Vec3A::new(0.0, 1.0, 0.0);
-pub const DEFAULT_HEAD: Vec3A = Vec3A::new(0.0, 1.15, 0.0);
-pub const DEFAULT_LEFT_SHOULDER: Vec3A = Vec3A::new(-0.02, 1.0, 0.0);
-pub const DEFAULT_LEFT_ELBOW: Vec3A = Vec3A::new(-0.18, 0.88, 0.0);
-pub const DEFAULT_LEFT_HAND: Vec3A = Vec3A::new(-0.35, 0.75, 0.0);
-pub const DEFAULT_RIGHT_SHOULDER: Vec3A = Vec3A::new(0.02, 1.0, 0.0);
-pub const DEFAULT_RIGHT_ELBOW: Vec3A = Vec3A::new(0.18, 0.88, 0.0);
-pub const DEFAULT_RIGHT_HAND: Vec3A = Vec3A::new(0.35, 0.75, 0.0);
-pub const DEFAULT_LEFT_HIP: Vec3A = Vec3A::new(-0.02, 0.45, 0.0);
-pub const DEFAULT_LEFT_KNEE: Vec3A = Vec3A::new(-0.15, 0.30, 0.0);
-pub const DEFAULT_LEFT_FOOT: Vec3A = Vec3A::new(-0.15, 0.0, 0.0);
-pub const DEFAULT_RIGHT_HIP: Vec3A = Vec3A::new(0.02, 0.45, 0.0);
-pub const DEFAULT_RIGHT_KNEE: Vec3A = Vec3A::new(0.15, 0.30, 0.0);
-pub const DEFAULT_RIGHT_FOOT: Vec3A = Vec3A::new(0.15, 0.0, 0.0);
+/// Y positions are raised by 0.05 to prevent feet clipping into floor.
+pub const DEFAULT_HIPS: Vec3A = Vec3A::new(0.0, 0.55, 0.0);
+pub const DEFAULT_NECK: Vec3A = Vec3A::new(0.0, 1.05, 0.0);
+pub const DEFAULT_HEAD: Vec3A = Vec3A::new(0.0, 1.20, 0.0);
+pub const DEFAULT_LEFT_SHOULDER: Vec3A = Vec3A::new(-0.02, 1.05, 0.0);
+pub const DEFAULT_LEFT_ELBOW: Vec3A = Vec3A::new(-0.18, 0.93, 0.0);
+pub const DEFAULT_LEFT_HAND: Vec3A = Vec3A::new(-0.35, 0.80, 0.0);
+pub const DEFAULT_RIGHT_SHOULDER: Vec3A = Vec3A::new(0.02, 1.05, 0.0);
+pub const DEFAULT_RIGHT_ELBOW: Vec3A = Vec3A::new(0.18, 0.93, 0.0);
+pub const DEFAULT_RIGHT_HAND: Vec3A = Vec3A::new(0.35, 0.80, 0.0);
+pub const DEFAULT_LEFT_HIP: Vec3A = Vec3A::new(-0.02, 0.50, 0.0);
+pub const DEFAULT_LEFT_KNEE: Vec3A = Vec3A::new(-0.15, 0.35, 0.0);
+pub const DEFAULT_LEFT_FOOT: Vec3A = Vec3A::new(-0.15, 0.05, 0.0);
+pub const DEFAULT_RIGHT_HIP: Vec3A = Vec3A::new(0.02, 0.50, 0.0);
+pub const DEFAULT_RIGHT_KNEE: Vec3A = Vec3A::new(0.15, 0.35, 0.0);
+pub const DEFAULT_RIGHT_FOOT: Vec3A = Vec3A::new(0.15, 0.05, 0.0);
 
 /// Expected bone lengths derived from the default skeleton pose (in meters).
 /// These are the target lengths that animation keyframes should match.

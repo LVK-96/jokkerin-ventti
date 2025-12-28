@@ -5,6 +5,7 @@
  */
 
 import init, { init_gpu, render_frame, resize_gpu, update_time_uniform, update_skeleton, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { initCameraControls, updateCameraFromInput } from './camera';
 
 export { set_exercise, load_animation };
 
@@ -26,6 +27,9 @@ function animate(time: number): void {
 
     // Update time uniform in Rust
     update_time_uniform(delta);
+
+    // Update camera from keyboard input
+    updateCameraFromInput();
 
     // Update skeleton animation based on current exercise
     update_skeleton();
@@ -51,6 +55,13 @@ export async function startEngine(): Promise<void> {
 
         // Test the add function
         console.log(`Wasm test: 2 + 3 = ${add(2, 3)}`);
+
+        // Initialize camera controls
+        const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
+        if (canvas) {
+            initCameraControls(canvas);
+            console.log('Camera controls initialized');
+        }
 
         // Start the animation loop
         animationId = requestAnimationFrame(animate);

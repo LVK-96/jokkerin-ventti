@@ -318,15 +318,15 @@ function skipPrevExercise(): void {
     }
 }
 
-// Keyboard shortcuts for exercise navigation
+// Keyboard shortcuts for exercise navigation (n/p keys only - arrows used for camera)
 document.addEventListener('keydown', (event) => {
     if (!workoutStarted) return;
-    // Skip to next exercise with 'n' or right arrow
-    if (event.key === 'n' || event.key === 'N' || event.key === 'ArrowRight') {
+    // Skip to next exercise with 'n'
+    if (event.key === 'n' || event.key === 'N') {
         skipNextExercise();
     }
-    // Skip to previous exercise with 'p' or left arrow
-    if (event.key === 'p' || event.key === 'P' || event.key === 'ArrowLeft') {
+    // Skip to previous exercise with 'p'
+    if (event.key === 'p' || event.key === 'P') {
         skipPrevExercise();
     }
 });
