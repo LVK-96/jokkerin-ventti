@@ -81,8 +81,6 @@ struct GpuState {
 const SKELETON_SHADER: &str = include_str!("shaders/skeleton.wgsl");
 const GRID_SHADER: &str = include_str!("shaders/grid.wgsl");
 
-use glam::Vec3;
-
 fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement) -> (u32, u32) {
     // CSS pixels * device pixel ratio = physical pixels
     let dpr = window.device_pixel_ratio();
@@ -581,7 +579,7 @@ pub fn update_skeleton() {
             let skeleton = if let Some(clip) = state.animations.get(&state.current_exercise_name) {
                 clip.sample(time)
             } else {
-                Skeleton::default()
+                Skeleton::bind_pose()
             };
 
             // Compute bone matrices

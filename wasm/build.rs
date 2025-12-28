@@ -7,30 +7,55 @@
 #[path = "src/skeleton_constants.rs"]
 mod skeleton_constants;
 
-use glam::Vec3;
+use glam::Vec3A;
 use serde::Deserialize;
 use skeleton_constants::BoneLengths;
 use std::fs;
 use std::path::Path;
 
-/// Skeleton pose from JSON
-#[derive(Debug, Deserialize)]
+/// Skeleton pose from JSON (represented as offsets from bind pose)
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
 struct Pose {
-    hips: Vec3,
-    neck: Vec3,
-    head: Vec3,
-    left_shoulder: Vec3,
-    left_elbow: Vec3,
-    left_hand: Vec3,
-    right_shoulder: Vec3,
-    right_elbow: Vec3,
-    right_hand: Vec3,
-    left_hip: Vec3,
-    left_knee: Vec3,
-    left_foot: Vec3,
-    right_hip: Vec3,
-    right_knee: Vec3,
-    right_foot: Vec3,
+    hips: Vec3A,
+    neck: Vec3A,
+    head: Vec3A,
+    left_shoulder: Vec3A,
+    left_elbow: Vec3A,
+    left_hand: Vec3A,
+    right_shoulder: Vec3A,
+    right_elbow: Vec3A,
+    right_hand: Vec3A,
+    left_hip: Vec3A,
+    left_knee: Vec3A,
+    left_foot: Vec3A,
+    right_hip: Vec3A,
+    right_knee: Vec3A,
+    right_foot: Vec3A,
+}
+
+impl Pose {
+    /// Convert delta pose to absolute pose using shared constants
+    fn to_absolute(&self) -> Self {
+        use skeleton_constants::*;
+        Self {
+            hips: DEFAULT_HIPS + self.hips,
+            neck: DEFAULT_NECK + self.neck,
+            head: DEFAULT_HEAD + self.head,
+            left_shoulder: DEFAULT_LEFT_SHOULDER + self.left_shoulder,
+            left_elbow: DEFAULT_LEFT_ELBOW + self.left_elbow,
+            left_hand: DEFAULT_LEFT_HAND + self.left_hand,
+            right_shoulder: DEFAULT_RIGHT_SHOULDER + self.right_shoulder,
+            right_elbow: DEFAULT_RIGHT_ELBOW + self.right_elbow,
+            right_hand: DEFAULT_RIGHT_HAND + self.right_hand,
+            left_hip: DEFAULT_LEFT_HIP + self.left_hip,
+            left_knee: DEFAULT_LEFT_KNEE + self.left_knee,
+            left_foot: DEFAULT_LEFT_FOOT + self.left_foot,
+            right_hip: DEFAULT_RIGHT_HIP + self.right_hip,
+            right_knee: DEFAULT_RIGHT_KNEE + self.right_knee,
+            right_foot: DEFAULT_RIGHT_FOOT + self.right_foot,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,7 +77,7 @@ fn validate_pose(pose: &Pose, expected: &BoneLengths, tolerance: f32) -> Vec<Str
     let mut errors = Vec::new();
 
     // Helper to check a bone length
-    let check = |errors: &mut Vec<String>, name: &str, a: Vec3, b: Vec3, expected_len: f32| {
+    let check = |errors: &mut Vec<String>, name: &str, a: Vec3A, b: Vec3A, expected_len: f32| {
         let actual = a.distance(b);
         let diff = (actual - expected_len).abs();
         if diff > tolerance {
@@ -185,7 +210,9 @@ fn validate_animation_file(
     let mut all_errors = Vec::new();
 
     for (i, keyframe) in clip.keyframes.iter().enumerate() {
-        let errors = validate_pose(&keyframe.pose, expected, tolerance);
+        // Reconstruct absolute pose from delta for validation
+        let abs_pose = keyframe.pose.to_absolute();
+        let errors = validate_pose(&abs_pose, expected, tolerance);
         if !errors.is_empty() {
             all_errors.push(format!(
                 "Keyframe {} (t={:.2}s):\n{}",

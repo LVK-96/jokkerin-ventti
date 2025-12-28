@@ -18,6 +18,7 @@ const WORKOUT_JSON_PATH = workoutUrl;
 // State
 let exercises: Exercise[] = [];
 let currentExercise = 0;
+let workoutStarted = false;
 let workoutDone = false;
 let intervalId: number | null = null;
 let wakeLock: WakeLockSentinel | null = null;
@@ -118,6 +119,11 @@ function updateUI(): void {
         exerciseNameEl.innerText = exerciseName;
     }
 
+    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
+    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
+    if (prevButton) prevButton.disabled = currentExercise <= 0;
+    if (nextButton) nextButton.disabled = currentExercise >= exercises.length - 1;
+
     setCountEl.innerText = `Set ${currentSet} of ${exercises[currentExercise].setCount}`;
     timerEl.innerText = timerText;
 }
@@ -137,6 +143,18 @@ function finished(): void {
     exerciseNameEl.innerText = 'Workout Done';
     timerEl.innerText = '';
     setCountEl.innerText = '';
+
+    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
+    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
+    if (prevButton) {
+        prevButton.disabled = true;
+        prevButton.hidden = true;
+    }
+    if (nextButton) {
+        nextButton.disabled = true;
+        nextButton.hidden = true;
+    }
+    workoutStarted = false;
 }
 
 function nextExercise(): void {
@@ -302,6 +320,7 @@ function skipPrevExercise(): void {
 
 // Keyboard shortcuts for exercise navigation
 document.addEventListener('keydown', (event) => {
+    if (!workoutStarted) return;
     // Skip to next exercise with 'n' or right arrow
     if (event.key === 'n' || event.key === 'N' || event.key === 'ArrowRight') {
         skipNextExercise();
@@ -313,6 +332,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 function startWorkout(): void {
+    workoutStarted = true;
     requestWakeLock();
     updateUI();
 
@@ -353,9 +373,20 @@ async function init(): Promise<void> {
         (document.getElementById('progress-bar-container') as HTMLElement).hidden = false;
         (document.getElementById('progress-bar') as HTMLElement).hidden = false;
         (document.getElementById('timer') as HTMLElement).hidden = false;
+        (document.getElementById('prevButton') as HTMLElement).hidden = false;
+        (document.getElementById('nextButton') as HTMLElement).hidden = false;
 
         startWorkout();
     }, { once: true });
+
+    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
+    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
+    if (prevButton) {
+        prevButton.addEventListener('click', () => skipPrevExercise());
+    }
+    if (nextButton) {
+        nextButton.addEventListener('click', () => skipNextExercise());
+    }
 
     let startPressed = false;
     document.addEventListener('mouseup', () => {

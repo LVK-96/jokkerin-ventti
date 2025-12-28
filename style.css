@@ -55,6 +55,7 @@ body {
 
 #textSizeSlider {
     -webkit-appearance: none;
+    appearance: none;
     width: 50%;
     height: 25px;
     background: #cdc9c9;
@@ -118,4 +119,48 @@ body {
     z-index: 1;
     /* Ensure it's behind other content */
     /* transition-timing-function: linear; */
+}
+
+/* Glassmorphism navigation buttons */
+.nav-button {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    font-size: 30px;
+    color: #2b2b2b;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    user-select: none;
+    text-shadow: none;
+    /* Override body text shadow for cleaner look */
+}
+
+.nav-button:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+.nav-button:active {
+    transform: scale(0.95);
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.nav-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    transform: none;
+}
+
+[hidden] {
+    display: none !important;
 }

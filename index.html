@@ -24,10 +24,15 @@
         </div>
 
         <!-- Exercise info (top area) -->
-        <div style="pointer-events: auto; text-align: center;">
-            <div id="exercise-count"></div>
-            <div id="exercise-name"></div>
-            <div id="set-count"></div>
+        <div
+            style="pointer-events: auto; text-align: center; display: flex; align-items: center; justify-content: center; gap: 20px;">
+            <button class="nav-button" id="prevButton" title="Previous Exercise (P)" hidden>←</button>
+            <div style="flex: 0 1 auto;">
+                <div id="exercise-count"></div>
+                <div id="exercise-name"></div>
+                <div id="set-count"></div>
+            </div>
+            <button class="nav-button" id="nextButton" title="Next Exercise (N)" hidden>→</button>
         </div>
 
         <!-- Spacer to push timer to bottom -->
