@@ -4,9 +4,11 @@
 
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
 
+pub mod animation;
 #[cfg(target_arch = "wasm32")]
 mod bench;
 mod bone_hierarchy;
+pub mod camera;
 
 #[cfg(target_arch = "wasm32")]
 pub mod editor;
@@ -20,12 +22,11 @@ mod skeleton_constants;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-// Shared global state
 // GPU_STATE is only available when compiling for wasm32 (browser)
 // On native targets, we use a stub type for compilation
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub static GPU_STATE: RefCell<Option<gpu::GpuState>> = const { RefCell::new(None) };
+    pub static GPU_STATE: RefCell<Option<gpu::GpuContext>> = const { RefCell::new(None) };
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -35,6 +36,14 @@ thread_local! {
 
 #[cfg(target_arch = "wasm32")]
 pub use bench::run_benchmarks;
+
+// Re-exports for WASM API
+#[cfg(target_arch = "wasm32")]
+pub use camera::{get_camera_right_axis, rotate_camera, update_camera};
+
+#[cfg(target_arch = "wasm32")]
+pub use animation::{advance_time, load_animation, set_exercise};
+
 #[cfg(target_arch = "wasm32")]
 pub use editor::{
     add_keyframe_copy, apply_joint_drag, enter_editor_mode, exit_editor_mode,
@@ -44,10 +53,7 @@ pub use editor::{
 };
 pub use glam::Vec3;
 #[cfg(target_arch = "wasm32")]
-pub use gpu::{
-    init_gpu, load_animation, render_frame, resize_gpu, set_exercise, update_skeleton,
-    update_time_uniform,
-};
+pub use gpu::{init_gpu, render_frame, resize_gpu, sync_camera, update_skeleton};
 pub use math::Mat4;
 pub use math::Mat4Extended;
 

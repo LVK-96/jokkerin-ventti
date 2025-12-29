@@ -2,7 +2,7 @@ import init, {
     init_gpu,
     render_frame,
     resize_gpu,
-    update_time_uniform,
+    advance_time,
     load_animation,
     enter_editor_mode,
     get_animation_keyframe_count,
@@ -56,7 +56,7 @@ async function initEditor() {
             getPoseJson: () => export_animation_json(),
             getSelectedJoint: () => selectedJoint,
             loadPose: (json) => {
-                load_animation(json);
+                load_animation(currentExerciseName, json);
                 enter_editor_mode();
             },
             setKeyframeIndex: (idx) => {
@@ -123,7 +123,7 @@ function loadExercise(name: string) {
     const json = animationMap.get(name)!;
 
     set_exercise(name);
-    load_animation(json);
+    load_animation(name, json);
     enter_editor_mode();
 
     currentKeyframe = 0;
@@ -139,10 +139,10 @@ function animate(time: number) {
     const delta = time - lastTime;
     lastTime = time;
 
-    update_time_uniform(delta);
+    advance_time(delta);
     updateCameraFromInput();
     update_skeleton(); // Renders editor pose because we called enter_editor_mode()
-    update_time_uniform(delta);
+    advance_time(delta);
     updateCameraFromInput();
     update_skeleton(); // Renders editor pose because we called enter_editor_mode()
     render_frame();

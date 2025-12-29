@@ -5,7 +5,7 @@
  * for quaternion-based camera rotation. All quaternion math is done in Rust.
  */
 
-import { rotate_camera, sync_camera } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { rotate_camera, sync_camera, get_camera_right_axis } from '../wasm/pkg/jokkerin_ventti_wasm';
 
 // Input state
 let isDragging = false;
@@ -75,13 +75,11 @@ export function updateCameraFromInput(): void {
         changed = true;
     }
 
-    // Vertical rotation (around world X axis)
-    if (keysPressed.has('ArrowUp')) {
-        rotate_camera(1, 0, 0, KEYBOARD_SPEED);
-        changed = true;
-    }
-    if (keysPressed.has('ArrowDown')) {
-        rotate_camera(1, 0, 0, -KEYBOARD_SPEED);
+    // Vertical rotation (around camera's local right axis)
+    if (keysPressed.has('ArrowUp') || keysPressed.has('ArrowDown')) {
+        const right = get_camera_right_axis();
+        const dir = keysPressed.has('ArrowUp') ? -1 : 1;  // Inverted: Up = negative rotation
+        rotate_camera(right[0], right[1], right[2], dir * KEYBOARD_SPEED);
         changed = true;
     }
 

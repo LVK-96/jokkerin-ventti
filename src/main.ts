@@ -437,9 +437,8 @@ async function init(): Promise<void> {
     await startEngine();
 
     // Load keyframe animations for exercises
-    // Load keyframe animations for exercises
-    for (const animJson of animationMap.values()) {
-        load_animation(animJson);
+    for (const [name, animJson] of animationMap.entries()) {
+        load_animation(name, animJson);
     }
 
     resetElementsWithText();

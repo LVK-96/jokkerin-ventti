@@ -4,7 +4,7 @@
  * Loads the Rust Wasm module and initializes WebGPU from Rust.
  */
 
-import init, { init_gpu, render_frame, resize_gpu, update_time_uniform, update_skeleton, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+import init, { init_gpu, render_frame, resize_gpu, advance_time, update_skeleton, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { initCameraControls, updateCameraFromInput } from './camera';
 
 export { set_exercise, load_animation };
@@ -26,7 +26,7 @@ function animate(time: number): void {
     lastTime = time;
 
     // Update time uniform in Rust
-    update_time_uniform(delta);
+    advance_time(delta);
 
     // Update camera from keyboard input
     updateCameraFromInput();

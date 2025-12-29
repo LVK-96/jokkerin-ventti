@@ -8,9 +8,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
-use crate::bone_hierarchy::{RotationAnimationClip, RotationPose};
+use crate::bone_hierarchy::RotationPose;
 use crate::skeleton::{RENDER_BONE_COUNT, SkinnedVertex, generate_bind_pose_mesh};
-use std::collections::HashMap;
 
 // Shared background/sky color
 const SKY_COLOR: wgpu::Color = wgpu::Color {
@@ -28,10 +27,9 @@ const SKY_COLOR: wgpu::Color = wgpu::Color {
 pub struct Uniforms {
     pub view: [[f32; 4]; 4],       // 64 bytes
     pub projection: [[f32; 4]; 4], // 64 bytes
-    pub time: f32,                 // 4 bytes
     pub aspect: f32,               // 4 bytes
     pub screen_height: f32,        // 4 bytes
-    pub _padding: [f32; 5],        // 20 bytes -> total 160 bytes
+    pub _padding: [f32; 6],        // 24 bytes -> total 160 bytes
 }
 const_assert_eq!(std::mem::size_of::<Uniforms>(), 160);
 
@@ -40,15 +38,14 @@ impl Default for Uniforms {
         Self {
             view: glam::Mat4::IDENTITY.to_cols_array_2d(),
             projection: glam::Mat4::IDENTITY.to_cols_array_2d(),
-            time: 0.0,
             aspect: 1.0,
             screen_height: 600.0,
-            _padding: [0.0; 5],
+            _padding: [0.0; 6],
         }
     }
 }
 
-pub struct GpuState {
+pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface: wgpu::Surface<'static>,
@@ -67,18 +64,12 @@ pub struct GpuState {
     // Bind groups
     pub uniform_bind_group: wgpu::BindGroup,
     pub bone_bind_group: wgpu::BindGroup,
-    // State
+    // Render state
     pub uniforms: Uniforms,
-    pub current_exercise_name: String,
-    pub animations: HashMap<String, RotationAnimationClip>,
     pub vertex_count: u32,
-    // Editor state
-    pub editor_mode: bool,
-    pub editor_keyframe_index: usize,
-    pub editor_clip: Option<RotationAnimationClip>,
     // Camera state (quaternion-based orbit camera)
-    pub camera_orientation: glam::Quat,
-    pub camera_distance: f32,
+    // Removed legacy fields: camera_orientation, camera_distance
+    // Use crate::CAMERA_STATE instead
 }
 
 /// Shader sources
@@ -225,6 +216,14 @@ pub async fn init_gpu(canvas_id: String) {
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
+
+    // Initialize with identity matrices to prevent zero-scale geometry before first update
+    let initial_bones = vec![glam::Mat4::IDENTITY.to_cols_array_2d(); RENDER_BONE_COUNT];
+    queue.write_buffer(
+        &bone_uniform_buffer,
+        0,
+        bytemuck::cast_slice(&initial_bones),
+    );
 
     // Create bone bind group layout
     let bone_bind_group_layout =
@@ -448,7 +447,7 @@ pub async fn init_gpu(canvas_id: String) {
     // Update uniform buffer
     queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-    let state = GpuState {
+    let state = GpuContext {
         device,
         queue,
         surface,
@@ -463,26 +462,8 @@ pub async fn init_gpu(canvas_id: String) {
         uniform_bind_group,
         bone_bind_group,
         uniforms,
-        current_exercise_name: "idle".to_string(),
-        animations: HashMap::new(),
         vertex_count,
-        // Editor state - initially disabled
-        editor_mode: false,
-        editor_keyframe_index: 0,
-        editor_clip: None,
-        // Camera state - initial orientation placing camera above and to the side of target
-        // With quaternion * (0, 0, distance) giving the camera offset from target:
-        // - Yaw (Y rotation): positive moves camera to the right (looking from left)
-        // - Pitch (X rotation): NEGATIVE moves camera UP (because +X rotation takes +Z toward -Y)
-        camera_orientation: {
-            let yaw = 0.7_f32; // Horizontal angle
-            let pitch = -0.25_f32; // Negative to go UP (camera above target)
-            let yaw_quat = glam::Quat::from_rotation_y(yaw);
-            let pitch_quat = glam::Quat::from_rotation_x(pitch);
-            // Apply pitch first (local), then yaw (world)
-            (yaw_quat * pitch_quat).normalize()
-        },
-        camera_distance: 4.0,
+        // Camera state - legacy init removed
     };
     crate::GPU_STATE.with(|s| {
         *s.borrow_mut() = Some(state);
@@ -535,114 +516,6 @@ pub fn resize_gpu(canvas_id: String) {
     });
 }
 
-/// Update time uniform (call each frame with delta time)
-#[wasm_bindgen]
-pub fn update_time_uniform(delta_ms: f32) {
-    crate::GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            state.uniforms.time += delta_ms / 1000.0;
-            state.queue.write_buffer(
-                &state.uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[state.uniforms]),
-            );
-        }
-    });
-}
-
-/// Update camera from spherical coordinates (orbit camera)
-/// azimuth: horizontal angle in radians (0 = front, PI/2 = right side)
-/// elevation: vertical angle in radians (0 = level, PI/2 = top-down)
-/// distance: distance from target point
-#[wasm_bindgen]
-pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
-    crate::GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            // Target point (center of stickman)
-            let target = glam::Vec3::new(0.0, 0.5, 0.0);
-
-            // Convert spherical to Cartesian coordinates
-            // elevation: 0 = horizontal, positive = looking down from above
-            let cos_elev = elevation.cos();
-            let sin_elev = elevation.sin();
-            let cos_azim = azimuth.cos();
-            let sin_azim = azimuth.sin();
-
-            // Camera position relative to target
-            let eye = target
-                + glam::Vec3::new(
-                    distance * cos_elev * sin_azim, // X
-                    distance * sin_elev,            // Y (height)
-                    distance * cos_elev * cos_azim, // Z
-                );
-
-            // Update view matrix
-            let up = glam::Vec3::Y;
-            state.uniforms.view = glam::Mat4::look_at_rh(eye, target, up).to_cols_array_2d();
-
-            // Write updated uniforms to GPU
-            state.queue.write_buffer(
-                &state.uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[state.uniforms]),
-            );
-        }
-    });
-}
-
-/// Apply a rotation to the camera around a world-space axis
-///
-/// Rotates the camera's stored quaternion orientation incrementally.
-/// Clamps elevation to prevent going under floor or directly overhead.
-/// Call sync_camera() after to update the view matrix.
-///
-/// # Arguments
-/// * `axis_x, axis_y, axis_z` - World-space axis to rotate around (should be normalized)
-/// * `angle` - Rotation angle in radians
-#[wasm_bindgen]
-pub fn rotate_camera(axis_x: f32, axis_y: f32, axis_z: f32, angle: f32) {
-    // Elevation limits as dot product of camera direction with world up
-    // These correspond to approximately 5° and 80° from horizontal
-    const MIN_UP_DOT: f32 = 0.05; // Camera must be at least slightly above target
-    const MAX_UP_DOT: f32 = 0.98; // Don't allow looking straight down
-
-    crate::GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            // Create incremental rotation quaternion from axis-angle
-            let axis = glam::Vec3::new(axis_x, axis_y, axis_z).normalize_or_zero();
-            if axis.length_squared() < 0.5 {
-                return; // Invalid axis
-            }
-            let delta = glam::Quat::from_axis_angle(axis, angle);
-
-            // Apply rotation: new = delta * current (world-space rotation)
-            let new_orientation = (delta * state.camera_orientation).normalize();
-
-            // Check elevation using dot product of camera offset direction with up
-            // Camera offset = orientation * (0, 0, distance), normalized direction = orientation * (0, 0, 1)
-            let forward = glam::Vec3::Z; // Camera points in +Z direction (behind target)
-            let new_dir = new_orientation * forward;
-            let up_dot = new_dir.y; // How much camera is above target
-
-            // Check current position for comparison
-            let old_dir = state.camera_orientation * forward;
-            let old_up_dot = old_dir.y;
-
-            // Apply the rotation if within limits, or if moving toward valid range
-            let within_limits = up_dot >= MIN_UP_DOT && up_dot <= MAX_UP_DOT;
-            let moving_to_valid = (old_up_dot < MIN_UP_DOT && up_dot > old_up_dot)
-                || (old_up_dot > MAX_UP_DOT && up_dot < old_up_dot);
-
-            if within_limits || moving_to_valid {
-                state.camera_orientation = new_orientation;
-            }
-        }
-    });
-}
-
 /// Sync camera state to GPU - updates view matrix from stored quaternion
 ///
 /// Call this after rotate_camera() to push the updated view matrix to the GPU.
@@ -651,24 +524,11 @@ pub fn sync_camera() {
     crate::GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
-            // Target point (center of stickman)
-            let target = glam::Vec3::new(0.0, 0.5, 0.0);
+            let camera = crate::camera::CAMERA_STATE.get();
+            let view = camera.view_matrix();
 
-            // Camera offset: rotate the "back" vector by the quaternion
-            // Back vector = (0, 0, distance) places camera behind target
-            let back = glam::Vec3::new(0.0, 0.0, state.camera_distance);
-            let offset = state.camera_orientation * back;
+            state.uniforms.view = view.to_cols_array_2d();
 
-            // Camera eye position
-            let eye = target + offset;
-
-            // Up vector: rotate world up by the quaternion for proper roll handling
-            let up = state.camera_orientation * glam::Vec3::Y;
-
-            // Update view matrix using look_at
-            state.uniforms.view = glam::Mat4::look_at_rh(eye, target, up).to_cols_array_2d();
-
-            // Write updated uniforms to GPU
             state.queue.write_buffer(
                 &state.uniform_buffer,
                 0,
@@ -693,89 +553,51 @@ pub fn get_camera_view_matrix() -> Vec<f32> {
         }
     })
 }
-
-/// Set the current exercise for animation
-#[wasm_bindgen]
-pub fn set_exercise(name: String) {
-    crate::GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            state.current_exercise_name = name.to_lowercase();
-            log::info!("Exercise set to: {}", state.current_exercise_name);
-        }
-    });
-}
-
-/// Load an animation clip from JSON string
-/// Call this during startup for each exercise you want to animate
-#[wasm_bindgen]
-pub fn load_animation(json_data: String) -> Result<(), JsValue> {
-    // Parse into a generic Value first to check the version
-    let v: serde_json::Value = serde_json::from_str(&json_data)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
-
-    // Check version
-    let is_v2 = v.get("version").and_then(|val| val.as_u64()) == Some(2);
-
-    if is_v2 {
-        // Version 2: Rotation-based animation
-        // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
-        let clip = RotationAnimationClip::from_json(&json_data)
-            .map_err(|e| JsValue::from_str(&format!("Failed to parse V2 animation: {}", e)))?;
-
-        log::info!(
-            "Loaded V2 (Rotation) animation: {} ({} keyframes)",
-            clip.name,
-            clip.keyframes.len()
-        );
-
-        crate::GPU_STATE.with(|s| {
-            let mut state_ref = s.borrow_mut();
-            if let Some(state) = state_ref.as_mut() {
-                state.animations.insert(clip.name.to_lowercase(), clip);
-            }
-        });
-        Ok(())
-    } else {
-        Err(JsValue::from_str(
-            "Only Version 2 (Rotation) animations are supported. Please upgrade your animation files.",
-        ))
-    }
-}
 /// Update skeleton animation based on current exercise and time
 /// Call this every frame before render_frame()
 /// In editor mode, displays the current keyframe's pose; otherwise animates.
 #[wasm_bindgen]
 pub fn update_skeleton() {
-    crate::GPU_STATE.with(|s| {
-        let state_ref = s.borrow();
-        if let Some(state) = state_ref.as_ref() {
-            let skeleton = if state.editor_mode {
-                // In editor mode: display the current keyframe's pose
-                if let Some(clip) = &state.editor_clip {
-                    if let Some(keyframe) = clip.keyframes.get(state.editor_keyframe_index) {
-                        // Clone the pose since to_skeleton() needs mutable access
-                        keyframe.pose.clone().to_skeleton()
-                    } else {
-                        RotationPose::bind_pose().to_skeleton()
-                    }
-                } else {
-                    RotationPose::bind_pose().to_skeleton()
+    // Get pose based on mode
+    let pose = crate::editor::EDITOR_STATE.with(|s| {
+        let state = s.borrow();
+        if state.active {
+            // In editor mode: display the current keyframe's pose
+            if let Some(clip) = &state.clip {
+                if let Some(keyframe) = clip.keyframes.get(state.keyframe_index) {
+                    return Some(keyframe.pose.clone());
                 }
-            } else {
-                // Normal mode: sample animation based on time
-                let time = state.uniforms.time;
-                if let Some(clip) = state.animations.get(&state.current_exercise_name) {
-                    clip.sample(time).to_skeleton()
-                } else {
-                    RotationPose::bind_pose().to_skeleton()
-                }
-            };
+            }
+            return Some(RotationPose::bind_pose());
+        }
+        None // Normal mode - handled below
+    });
 
-            // Compute bone matrices
+    // For normal mode, use the separate animation state
+    let mut pose = pose.unwrap_or_else(|| {
+        // Get playback state
+        let playback = crate::animation::PLAYBACK_STATE.with(|p| p.borrow().clone());
+
+        // Sample animation from library (pure function)
+        crate::animation::ANIMATION_LIBRARY.with(|lib| {
+            let library = lib.borrow();
+            crate::animation::sample_animation(&library, &playback)
+        })
+    });
+
+    // Update GPU buffers
+    crate::GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            // Apply floor constraint (simplistic, just keeps hips above floor)
+            // Ideally this would be part of a "physics" pass
+            if pose.root_position.y > 0.0 {
+                // pose.root_position.y = pose.root_position.y.max(0.85); // Hips height
+            }
+
+            let skeleton = pose.to_skeleton();
             let matrices = skeleton.compute_bone_matrices();
 
-            // Write to GPU
             state.queue.write_buffer(
                 &state.bone_uniform_buffer,
                 0,
