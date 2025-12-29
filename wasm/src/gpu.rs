@@ -76,6 +76,9 @@ pub struct GpuState {
     pub editor_mode: bool,
     pub editor_keyframe_index: usize,
     pub editor_clip: Option<RotationAnimationClip>,
+    // Camera state (quaternion-based orbit camera)
+    pub camera_orientation: glam::Quat,
+    pub camera_distance: f32,
 }
 
 /// Shader sources
@@ -467,6 +470,19 @@ pub async fn init_gpu(canvas_id: String) {
         editor_mode: false,
         editor_keyframe_index: 0,
         editor_clip: None,
+        // Camera state - initial orientation placing camera above and to the side of target
+        // With quaternion * (0, 0, distance) giving the camera offset from target:
+        // - Yaw (Y rotation): positive moves camera to the right (looking from left)
+        // - Pitch (X rotation): NEGATIVE moves camera UP (because +X rotation takes +Z toward -Y)
+        camera_orientation: {
+            let yaw = 0.7_f32; // Horizontal angle
+            let pitch = -0.25_f32; // Negative to go UP (camera above target)
+            let yaw_quat = glam::Quat::from_rotation_y(yaw);
+            let pitch_quat = glam::Quat::from_rotation_x(pitch);
+            // Apply pitch first (local), then yaw (world)
+            (yaw_quat * pitch_quat).normalize()
+        },
+        camera_distance: 4.0,
     };
     crate::GPU_STATE.with(|s| {
         *s.borrow_mut() = Some(state);
@@ -574,6 +590,108 @@ pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
             );
         }
     });
+}
+
+/// Apply a rotation to the camera around a world-space axis
+///
+/// Rotates the camera's stored quaternion orientation incrementally.
+/// Clamps elevation to prevent going under floor or directly overhead.
+/// Call sync_camera() after to update the view matrix.
+///
+/// # Arguments
+/// * `axis_x, axis_y, axis_z` - World-space axis to rotate around (should be normalized)
+/// * `angle` - Rotation angle in radians
+#[wasm_bindgen]
+pub fn rotate_camera(axis_x: f32, axis_y: f32, axis_z: f32, angle: f32) {
+    // Elevation limits as dot product of camera direction with world up
+    // These correspond to approximately 5° and 80° from horizontal
+    const MIN_UP_DOT: f32 = 0.05; // Camera must be at least slightly above target
+    const MAX_UP_DOT: f32 = 0.98; // Don't allow looking straight down
+
+    crate::GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            // Create incremental rotation quaternion from axis-angle
+            let axis = glam::Vec3::new(axis_x, axis_y, axis_z).normalize_or_zero();
+            if axis.length_squared() < 0.5 {
+                return; // Invalid axis
+            }
+            let delta = glam::Quat::from_axis_angle(axis, angle);
+
+            // Apply rotation: new = delta * current (world-space rotation)
+            let new_orientation = (delta * state.camera_orientation).normalize();
+
+            // Check elevation using dot product of camera offset direction with up
+            // Camera offset = orientation * (0, 0, distance), normalized direction = orientation * (0, 0, 1)
+            let forward = glam::Vec3::Z; // Camera points in +Z direction (behind target)
+            let new_dir = new_orientation * forward;
+            let up_dot = new_dir.y; // How much camera is above target
+
+            // Check current position for comparison
+            let old_dir = state.camera_orientation * forward;
+            let old_up_dot = old_dir.y;
+
+            // Apply the rotation if within limits, or if moving toward valid range
+            let within_limits = up_dot >= MIN_UP_DOT && up_dot <= MAX_UP_DOT;
+            let moving_to_valid = (old_up_dot < MIN_UP_DOT && up_dot > old_up_dot)
+                || (old_up_dot > MAX_UP_DOT && up_dot < old_up_dot);
+
+            if within_limits || moving_to_valid {
+                state.camera_orientation = new_orientation;
+            }
+        }
+    });
+}
+
+/// Sync camera state to GPU - updates view matrix from stored quaternion
+///
+/// Call this after rotate_camera() to push the updated view matrix to the GPU.
+#[wasm_bindgen]
+pub fn sync_camera() {
+    crate::GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            // Target point (center of stickman)
+            let target = glam::Vec3::new(0.0, 0.5, 0.0);
+
+            // Camera offset: rotate the "back" vector by the quaternion
+            // Back vector = (0, 0, distance) places camera behind target
+            let back = glam::Vec3::new(0.0, 0.0, state.camera_distance);
+            let offset = state.camera_orientation * back;
+
+            // Camera eye position
+            let eye = target + offset;
+
+            // Up vector: rotate world up by the quaternion for proper roll handling
+            let up = state.camera_orientation * glam::Vec3::Y;
+
+            // Update view matrix using look_at
+            state.uniforms.view = glam::Mat4::look_at_rh(eye, target, up).to_cols_array_2d();
+
+            // Write updated uniforms to GPU
+            state.queue.write_buffer(
+                &state.uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[state.uniforms]),
+            );
+        }
+    });
+}
+
+/// Get the current camera view matrix as a Float32Array (16 floats, column-major)
+/// Used by TypeScript for gizmo rendering
+#[wasm_bindgen]
+pub fn get_camera_view_matrix() -> Vec<f32> {
+    crate::GPU_STATE.with(|s| {
+        let state_ref = s.borrow();
+        if let Some(state) = state_ref.as_ref() {
+            // Flatten the 4x4 view matrix to a Vec<f32>
+            let view = &state.uniforms.view;
+            view.iter().flat_map(|row| row.iter().copied()).collect()
+        } else {
+            vec![0.0; 16]
+        }
+    })
 }
 
 /// Set the current exercise for animation

@@ -1,77 +1,52 @@
-import { getCameraState } from '../camera';
+import { get_camera_view_matrix } from '../../wasm/pkg/jokkerin_ventti_wasm';
 
+/**
+ * Draw the gizmo showing world coordinate axes
+ * Uses the camera view matrix from WASM to project axes to screen space
+ */
 export function drawGizmo(ctx: CanvasRenderingContext2D) {
-    // console.log("Drawing Gizmo");
-
-    const { azimuth, elevation } = getCameraState();
-
-    // View Basis Calculation
-    // Camera Position C (spherical to cartesian)
-    // We only care about rotation.
-    // D (Direction from Camera to Target) is inward.
-    // Target - Camera.
-    // Let's assume Camera is at (sin(az)cos(el), sin(el), cos(az)cos(el))
-    // Looking at (0,0,0).
-    // Forward F = -CameraPos.normalized().
-
-    const cosEl = Math.cos(elevation);
-    const sinEl = Math.sin(elevation);
-
-    // Camera Pos Direction (Unit)
-    const cx = Math.sin(azimuth) * cosEl;
-    const cy = sinEl;
-    const cz = Math.cos(azimuth) * cosEl;
-
-    // Forward Vector (Camera -> Target)
-    // Note: In Three.js/OpenGL, Camera "Forward" is -Z (local).
-    // But "View Direction" is Target - Eye.
-    const fx = -cx;
-    const fy = -cy;
-    const fz = -cz;
-
-    // World Up is (0,1,0)
-    // Right = Cross(F, Up).Normalized
-    // Right = (fy*0 - fz*1, fz*0 - fx*0, fx*1 - fy*0)
-    //       = (-fz, 0, fx)
-    let rx = -fz;
-    let ry = 0;
-    let rz = fx;
-
-    // Normalize Right
-    const rLen = Math.sqrt(rx * rx + rz * rz);
-    if (rLen > 0.0001) {
-        rx /= rLen; rz /= rLen;
+    // Get view matrix from WASM (flattened 4x4, column-major)
+    let viewMatrix: Float32Array;
+    try {
+        viewMatrix = get_camera_view_matrix();
+    } catch {
+        // GPU not initialized yet, skip gizmo
+        return;
     }
 
-    // Up = Cross(Right, Forward)
-    // Ux = ry*fz - rz*fy = 0 - rz*fy = -rz*fy
-    // Uy = rz*fx - rx*fz
-    // Uz = rx*fy - ry*fx = rx*fy
+    if (viewMatrix.length !== 16) return;
 
-    const ux = -rz * fy;
-    const uy = rz * fx - rx * fz;
-    const uz = rx * fy;
+    // Extract the rotation part of the view matrix (upper-left 3x3)
+    // View matrix transforms world to camera space
+    // The columns are the world X, Y, Z axes in camera space
+    // We need to project world axes onto screen (camera X = right, camera Y = up)
 
-    // Gizmo Center
+    // View matrix columns (column-major order):
+    // col 0: right vector (camera X direction in world space, but transposed in view matrix)
+    // Actually, view matrix rows are camera axes directions in world space
+    // Row 0 = Right, Row 1 = Up, Row 2 = Forward (into screen for RH)
+
+    // For a view matrix V, the upper 3x3 rotation R = V^T (for orthogonal rotation)
+    // Screen coords: project world axis onto Right (row 0) and Up (row 1)
+
+    // View matrix in column-major: [m00, m10, m20, m30, m01, m11, m21, m31, ...]
+    // Row 0: m00, m01, m02 = indices 0, 4, 8 (right vector)
+    // Row 1: m10, m11, m12 = indices 1, 5, 9 (up vector)
+
+    const rx = viewMatrix[0], ry = viewMatrix[4], rz = viewMatrix[8];   // Right vector
+    const ux = viewMatrix[1], uy = viewMatrix[5], uz = viewMatrix[9];   // Up vector
+
+    // Gizmo origin (bottom-left corner)
     const originX = 50;
-    const originY = ctx.canvas.height - 200; // Above legend (bottom bar 60 + legend ~100 + padding)
+    const originY = ctx.canvas.height - 200;
     const axisLen = 40;
 
-    // Project Axes
-    // Dot Product with Right (Screen X) and Up (Screen Y, inverted)
-    // Screen X = Dot(Axis, Right)
-    // Screen Y = -Dot(Axis, Up) (Since screen Y is down)
-    // Correction:
-    // If I pan camera right, object moves left.
-    // If Right vector points Right on screen.
-    // If P is (1,0,0). ProjX = Dot(P, Right).
-    // If P is in direction of Right, it should be Positive X on screen.
-    // Yes.
-
-    const project = (ax: number, ay: number, az: number) => {
+    // Project world axis (ax, ay, az) to screen coords
+    const project = (ax: number, ay: number, az: number): [number, number] => {
+        // Dot with right = screen X, dot with up = screen Y (inverted for canvas)
         const px = ax * rx + ay * ry + az * rz;
         const py = ax * ux + ay * uy + az * uz;
-        return [originX + px * axisLen, originY - py * axisLen]; // Y inverted for canvas
+        return [originX + px * axisLen, originY - py * axisLen];
     };
 
     ctx.lineWidth = 3;

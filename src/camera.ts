@@ -1,16 +1,11 @@
 /**
  * Orbit Camera Controller
  * 
- * Provides keyboard (arrow keys) and mouse drag controls for orbiting
- * the camera around the stickman.
+ * Thin input handler that forwards keyboard/mouse input to Rust/WASM
+ * for quaternion-based camera rotation. All quaternion math is done in Rust.
  */
 
-import { update_camera } from '../wasm/pkg/jokkerin_ventti_wasm';
-
-// Camera state (spherical coordinates)
-let azimuth = 0.7;      // Horizontal angle in radians (0 = front)
-let elevation = 0.25;   // Vertical angle in radians (0 = level)
-let distance = 4.0;     // Distance from target
+import { rotate_camera, sync_camera } from '../wasm/pkg/jokkerin_ventti_wasm';
 
 // Input state
 let isDragging = false;
@@ -21,12 +16,8 @@ let lastMouseY = 0;
 let cameraEnabled = true;
 
 // Sensitivity settings
-const KEYBOARD_SPEED = 0.03;    // Radians per frame when key held
+const KEYBOARD_SPEED = 0.03;     // Radians per frame when key held
 const MOUSE_SENSITIVITY = 0.005; // Radians per pixel dragged
-
-// Limits
-const MIN_ELEVATION = 0.05;  // Prevent going below floor level
-const MAX_ELEVATION = 1.4;   // Don't go directly overhead
 
 // Track which keys are pressed
 const keysPressed: Set<string> = new Set();
@@ -37,14 +28,16 @@ const keysPressed: Set<string> = new Set();
 export function setCameraEnabled(enabled: boolean): void {
     cameraEnabled = enabled;
     if (!enabled) {
-        // Clear any held keys when disabling
         keysPressed.clear();
         isDragging = false;
     }
 }
 
+/**
+ * Get camera enabled state
+ */
 export function getCameraState() {
-    return { azimuth, elevation };
+    return { enabled: cameraEnabled };
 }
 
 /**
@@ -61,8 +54,8 @@ export function initCameraControls(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointerleave', onPointerUp);
 
-    // Apply initial camera position
-    syncCamera();
+    // Apply initial camera position (state initialized in Rust)
+    sync_camera();
 }
 
 /**
@@ -72,33 +65,29 @@ export function initCameraControls(canvas: HTMLCanvasElement): void {
 export function updateCameraFromInput(): void {
     let changed = false;
 
+    // Horizontal rotation (around world Y axis)
     if (keysPressed.has('ArrowLeft')) {
-        azimuth -= KEYBOARD_SPEED;
+        rotate_camera(0, 1, 0, -KEYBOARD_SPEED);
         changed = true;
     }
     if (keysPressed.has('ArrowRight')) {
-        azimuth += KEYBOARD_SPEED;
+        rotate_camera(0, 1, 0, KEYBOARD_SPEED);
         changed = true;
     }
+
+    // Vertical rotation (around world X axis)
     if (keysPressed.has('ArrowUp')) {
-        elevation = Math.min(MAX_ELEVATION, elevation + KEYBOARD_SPEED);
+        rotate_camera(1, 0, 0, KEYBOARD_SPEED);
         changed = true;
     }
     if (keysPressed.has('ArrowDown')) {
-        elevation = Math.max(MIN_ELEVATION, elevation - KEYBOARD_SPEED);
+        rotate_camera(1, 0, 0, -KEYBOARD_SPEED);
         changed = true;
     }
 
     if (changed) {
-        syncCamera();
+        sync_camera();
     }
-}
-
-/**
- * Send current camera state to WASM
- */
-function syncCamera(): void {
-    update_camera(azimuth, elevation, distance);
 }
 
 // --- Event Handlers ---
@@ -129,14 +118,20 @@ function onPointerMove(e: PointerEvent): void {
     const deltaX = e.clientX - lastMouseX;
     const deltaY = e.clientY - lastMouseY;
 
-    azimuth += deltaX * MOUSE_SENSITIVITY;
-    elevation = Math.max(MIN_ELEVATION, Math.min(MAX_ELEVATION,
-        elevation + deltaY * MOUSE_SENSITIVITY));
+    // Horizontal drag: rotate around world Y axis
+    if (Math.abs(deltaX) > 0) {
+        rotate_camera(0, 1, 0, deltaX * MOUSE_SENSITIVITY);
+    }
+
+    // Vertical drag: rotate around world X axis
+    if (Math.abs(deltaY) > 0) {
+        rotate_camera(1, 0, 0, deltaY * MOUSE_SENSITIVITY);
+    }
 
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
 
-    syncCamera();
+    sync_camera();
 }
 
 function onPointerUp(e: PointerEvent): void {
