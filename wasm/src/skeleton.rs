@@ -34,6 +34,13 @@ pub struct SkinnedVertex {
 // 13 cylinders + 1 head sphere + 15 debug joint spheres = 29
 pub const RENDER_BONE_COUNT: usize = 29;
 
+/// Number of segments for cylinder geometry
+pub const CYLINDER_SEGMENTS: usize = 12;
+/// Number of latitude segments for sphere geometry
+pub const SPHERE_LAT_SEGMENTS: usize = 16;
+/// Number of longitude segments for sphere geometry
+pub const SPHERE_LON_SEGMENTS: usize = 24;
+
 fn add_cylinder(
     vertices: &mut Vec<SkinnedVertex>,
     start: Vec3A,
@@ -45,7 +52,7 @@ fn add_cylinder(
     let length = start.distance(end);
     let valid_len = if length < 0.0001 { 0.0001 } else { length };
 
-    let segments = 12;
+    let segments = CYLINDER_SEGMENTS;
 
     // Basis
     let up = if dir.abs().dot(Vec3A::Y) > 0.99 {
@@ -166,8 +173,8 @@ fn add_cylinder(
 // Helper to add a sphere
 fn add_sphere(vertices: &mut Vec<SkinnedVertex>, center: Vec3A, radius: f32, bone_idx: u32) {
     // Higher segment counts for smoother sphere silhouette
-    let lat_segments = 16;
-    let lon_segments = 24;
+    let lat_segments = SPHERE_LAT_SEGMENTS;
+    let lon_segments = SPHERE_LON_SEGMENTS;
 
     for i in 0..lat_segments {
         let theta1 = (i as f32 / lat_segments as f32) * std::f32::consts::PI;
@@ -207,6 +214,7 @@ fn add_sphere(vertices: &mut Vec<SkinnedVertex>, center: Vec3A, radius: f32, bon
                 normal: Vec3::from(n1).to_array(),
                 bone_index: bone_idx,
             });
+
             vertices.push(SkinnedVertex {
                 position: Vec3::from(w2).to_array(),
                 normal: Vec3::from(n2).to_array(),
@@ -365,7 +373,6 @@ impl Skeleton {
         matrices[25] = compute_offset_matrix(bind.right_hip, self.right_hip);
         matrices[26] = compute_offset_matrix(bind.right_knee, self.right_knee);
         matrices[27] = compute_offset_matrix(bind.right_foot, self.right_foot);
-        matrices[28] = compute_offset_matrix(bind.head, self.head);
 
         matrices
     }

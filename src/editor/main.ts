@@ -1,31 +1,34 @@
 import init, {
     init_gpu,
     render_frame,
-    resize_gpu,
+    resize_surface,
     advance_time,
     load_animation,
-    enter_editor_mode,
-    get_animation_keyframe_count,
-    get_current_keyframe_time,
-    set_editor_keyframe,
-    remove_keyframe,
-    add_keyframe_copy,
-    get_joint_screen_positions,
-    apply_joint_drag,
-    export_animation_json,
-    get_joint_info,
-    set_joint_rotation,
-    set_joint_position_editor,
+    // New handle-based API
+    create_editor_session,
+    destroy_editor_session,
+    get_keyframe_count,
+    get_keyframe_time,
+    set_keyframe_index,
+    add_keyframe,
+    delete_keyframe,
+    get_joint_positions,
+    drag_joint,
+    export_clip_json,
+    get_bone_info,
+    set_bone_rotation,
+    set_bone_position,
     set_exercise,
-    update_skeleton,
+    update_skeleton_from_session,
 } from "../../wasm/pkg/jokkerin_ventti_wasm";
-import { initCameraControls, updateCameraFromInput, setCameraEnabled } from '../camera';
+import { initCameraControls, updateCameraFromInput, setCameraEnabled, getViewMatrix, getProjectionMatrix } from '../camera';
 import { animationMap } from '../animations';
 import { initHistory, saveUndoState, undo, redo, clearHistory } from './history';
 import { drawGizmo } from './overlay';
 
 // --- State ---
 let currentExerciseName = '';
+let editorHandle: number = 0; // Handle to the active editor session (0 = invalid)
 let currentKeyframe = 0;
 let isDragging = false;
 let selectedJoint: number | null = null;
@@ -53,15 +56,17 @@ async function initEditor() {
         // Initialize history
         initHistory({
             getKeyframeIndex: () => currentKeyframe,
-            getPoseJson: () => export_animation_json(),
+            getPoseJson: () => editorHandle ? export_clip_json(editorHandle) : '{}',
             getSelectedJoint: () => selectedJoint,
             loadPose: (json) => {
+                // Destroy old session, create new one with modified clip
+                if (editorHandle) destroy_editor_session(editorHandle);
                 load_animation(currentExerciseName, json);
-                enter_editor_mode();
+                editorHandle = create_editor_session(currentExerciseName);
             },
             setKeyframeIndex: (idx) => {
                 currentKeyframe = idx;
-                set_editor_keyframe(idx);
+                if (editorHandle) set_keyframe_index(editorHandle, idx);
             },
             setSelectedJoint: (idx) => {
                 selectedJoint = idx;
@@ -87,7 +92,7 @@ async function initEditor() {
         requestAnimationFrame(animate);
 
         // Handle resize
-        window.addEventListener('resize', () => resize_gpu('gpu-canvas'));
+        window.addEventListener('resize', () => resize_surface('gpu-canvas'));
 
     } catch (e) {
         console.error('Failed to init WebGPU:', e);
@@ -119,12 +124,21 @@ function populateExerciseSelect() {
 function loadExercise(name: string) {
     if (!animationMap.has(name)) return;
 
+    // Destroy previous session if exists
+    if (editorHandle) {
+        destroy_editor_session(editorHandle);
+        editorHandle = 0;
+    }
+
     currentExerciseName = name;
     const json = animationMap.get(name)!;
 
     set_exercise(name);
     load_animation(name, json);
-    enter_editor_mode();
+
+    // Create new editor session with handle
+    editorHandle = create_editor_session(name);
+    console.log(`Created editor session: ${editorHandle}`);
 
     currentKeyframe = 0;
     selectedJoint = null;
@@ -141,15 +155,16 @@ function animate(time: number) {
 
     advance_time(delta);
     updateCameraFromInput();
-    update_skeleton(); // Renders editor pose because we called enter_editor_mode()
-    advance_time(delta);
-    updateCameraFromInput();
-    update_skeleton(); // Renders editor pose because we called enter_editor_mode()
+
+    // Use handle-based skeleton update if handle is valid
+    if (editorHandle) {
+        update_skeleton_from_session(editorHandle);
+    }
+
     render_frame();
     drawOverlay();
 
     if (selectedJoint !== null) {
-        // Update Info Panel
         updateJointUI(selectedJoint);
     } else {
         const ph = document.getElementById('joint-placeholder');
@@ -190,7 +205,7 @@ function drawOverlay() {
 
     drawGizmo(overlayCtx);
 
-    // Get joint positions
+    // Get joint positions using handle-based API
     try {
         const positions = getLogicalJointPositions();
         if (!positions || positions.length === 0) return;
@@ -200,7 +215,7 @@ function drawOverlay() {
             const x = positions[i * 2];
             const y = positions[i * 2 + 1];
 
-            // Skip if behind camera (-1000 scaled is still negative)
+            // Skip if behind camera
             if (x < -100) continue;
 
             const isHovered = i === hoveredJoint;
@@ -224,7 +239,9 @@ function drawOverlay() {
         }
 
         drawGizmo(overlayCtx);
-    } catch (e) { }
+    } catch (e) {
+        console.error('Overlay draw error:', e);
+    }
 }
 
 function bindEvents(canvas: HTMLCanvasElement) {
@@ -236,8 +253,8 @@ function bindEvents(canvas: HTMLCanvasElement) {
     // Timeline Buttons
     document.getElementById('prev-kf')?.addEventListener('click', () => navigateKeyframe(-1));
     document.getElementById('next-kf')?.addEventListener('click', () => navigateKeyframe(1));
-    document.getElementById('add-kf')?.addEventListener('click', addKeyframe);
-    document.getElementById('delete-kf')?.addEventListener('click', deleteKeyframe);
+    document.getElementById('add-kf')?.addEventListener('click', addKeyframeHandler);
+    document.getElementById('delete-kf')?.addEventListener('click', deleteKeyframeHandler);
     document.getElementById('save-btn')?.addEventListener('click', copyJson);
     document.getElementById('undo-btn')?.addEventListener('click', undo);
     document.getElementById('redo-btn')?.addEventListener('click', redo);
@@ -258,48 +275,39 @@ function bindJointInputs() {
 }
 
 function onJointInputChange(e: Event) {
-    if (selectedJoint === null) return;
+    if (selectedJoint === null || !editorHandle) return;
     const target = e.target as HTMLInputElement;
     const id = target.id;
     const val = parseFloat(target.value);
 
-    // Validate input: reject empty or invalid values
-    if (isNaN(val)) {
-        // Restore the input to its current valid value from the model
-        const infoJson = get_joint_info(selectedJoint);
-        const info = JSON.parse(infoJson);
-        if (id === 'j-x') target.value = info.x.toFixed(2);
-        else if (id === 'j-y') target.value = info.y.toFixed(2);
-        else if (id === 'j-z') target.value = info.z.toFixed(2);
-        else if (id === 'j-rx') target.value = info.rx.toFixed(2);
-        else if (id === 'j-ry') target.value = info.ry.toFixed(2);
-        else if (id === 'j-rz') target.value = info.rz.toFixed(2);
-        return;
-    }
-
-
-    // Get current values to mix
-    const infoJson = get_joint_info(selectedJoint);
-    const info = JSON.parse(infoJson);
-
-    if (id.startsWith('j-r')) {
-        // Rotation
-        let rx = id === 'j-rx' ? val : info.rx;
-        let ry = id === 'j-ry' ? val : info.ry;
-        let rz = id === 'j-rz' ? val : info.rz;
-        set_joint_rotation(selectedJoint, rx, ry, rz);
-    } else {
-        // Position
-        let x = id === 'j-x' ? val : info.x;
-        let y = id === 'j-y' ? val : info.y;
-        let z = id === 'j-z' ? val : info.z;
-        set_joint_position_editor(selectedJoint, x, y, z);
+    const info = get_bone_info(editorHandle, selectedJoint);
+    if (info) {
+        if (isNaN(val)) {
+            // Restore the input to its current valid value
+            set_bone_position(editorHandle, selectedJoint, info.x, info.y, info.z);
+            set_bone_rotation(editorHandle, selectedJoint, info.rx, info.ry, info.rz);
+        } else {
+            if (id.startsWith('j-r')) {
+                // Rotation
+                let rx = id === 'j-rx' ? val : info.rx;
+                let ry = id === 'j-ry' ? val : info.ry;
+                let rz = id === 'j-rz' ? val : info.rz;
+                set_bone_rotation(editorHandle, selectedJoint, rx, ry, rz);
+            } else {
+                // Position
+                let x = id === 'j-x' ? val : info.x;
+                let y = id === 'j-y' ? val : info.y;
+                let z = id === 'j-z' ? val : info.z;
+                set_bone_position(editorHandle, selectedJoint, x, y, z);
+            }
+        }
+        info.free();
     }
 }
 
 function updateJointUI(jointId: number) {
-    const infoJson = get_joint_info(jointId);
-    const info = JSON.parse(infoJson);
+    if (!editorHandle) return;
+    const info = get_bone_info(editorHandle, jointId);
 
     const ph = document.getElementById('joint-placeholder');
     const ctrl = document.getElementById('joint-controls');
@@ -309,7 +317,6 @@ function updateJointUI(jointId: number) {
     if (ctrl) ctrl.style.display = 'block';
     if (idSpan) idSpan.textContent = `${jointId} (${JOINT_NAMES[jointId] || 'Unknown'})`;
 
-    // Update inputs if not focused
     const setVal = (id: string, v: number) => {
         const el = document.getElementById(id) as HTMLInputElement;
         if (el && document.activeElement !== el) {
@@ -317,39 +324,50 @@ function updateJointUI(jointId: number) {
         }
     };
 
-    if (info.x !== undefined) {
+    if (info) {
         setVal('j-x', info.x);
         setVal('j-y', info.y);
         setVal('j-z', info.z);
         setVal('j-rx', info.rx);
         setVal('j-ry', info.ry);
         setVal('j-rz', info.rz);
+        info.free();
     }
 }
 
 function onPointerMove(e: PointerEvent) {
-    if (!currentExerciseName) return;
+    if (!currentExerciseName || !editorHandle) return;
 
-    // Update hovered joint
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
     if (!isDragging) {
         hoveredJoint = findNearestJoint(x, y);
-        // Change cursor
         (e.target as HTMLElement).style.cursor = hoveredJoint !== null ? 'pointer' : 'default';
         updateUI();
     }
 
     if (isDragging && selectedJoint !== null) {
-        // Drag logic uses raw client deltas for now
         const dx = e.clientX - dragStartX;
         const dy = e.clientY - dragStartY;
 
-        // Scale delta by DPR for WASM (which expects physical pixels)
+        // Get camera matrices for projection
+        const view = getViewMatrix();
+        const proj = getProjectionMatrix();
+        const canvas = e.target as HTMLCanvasElement;
         const dpr = window.devicePixelRatio || 1;
-        apply_joint_drag(selectedJoint, dx * dpr, dy * dpr);
+
+        drag_joint(
+            editorHandle,
+            selectedJoint,
+            dx * dpr,
+            dy * dpr,
+            view,
+            proj,
+            canvas.width,
+            canvas.height
+        );
 
         dragStartX = e.clientX;
         dragStartY = e.clientY;
@@ -357,7 +375,7 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerDown(e: PointerEvent) {
-    if (!currentExerciseName) return;
+    if (!currentExerciseName || !editorHandle) return;
 
     const canvas = e.target as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
@@ -389,7 +407,6 @@ function onPointerUp(e: PointerEvent) {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-    // Shortcuts
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
 
     if (e.key === '[') navigateKeyframe(-1);
@@ -398,18 +415,24 @@ function onKeyDown(e: KeyboardEvent) {
     if (e.ctrlKey && e.key === 'z') undo();
     if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) redo();
 
-    if (e.key === 'Delete') deleteKeyframe();
+    if (e.key === 'Delete') deleteKeyframeHandler();
 }
 
 // --- Logic ---
 
 function getLogicalJointPositions(): Float32Array | number[] | null {
-    const raw = get_joint_screen_positions();
+    if (!editorHandle) return null;
+
+    // Get camera matrices
+    const view = getViewMatrix();
+    const proj = getProjectionMatrix();
+    const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
+    if (!canvas) return null;
+
+    const raw = get_joint_positions(editorHandle, view, proj, canvas.width, canvas.height);
     if (!raw || raw.length === 0) return null;
 
-    // Scale down by DPR if needed
-    // WASM returns physical pixels (based on canvas.width/height)
-    // We want logical CSS pixels for overlay and mouse interaction
+    // Scale down by DPR for logical CSS pixels
     const dpr = window.devicePixelRatio || 1;
     if (dpr === 1) return raw;
 
@@ -426,52 +449,58 @@ function findNearestJoint(sx: number, sy: number): number | null {
         if (!positions || positions.length === 0) return null;
 
         let nearest: number | null = null;
-        let minInfo = 20; // radius
+        let minDist = 20; // radius
 
         for (let i = 0; i < positions.length / 2; i++) {
             const jx = positions[i * 2];
             const jy = positions[i * 2 + 1];
             const d = Math.sqrt((jx - sx) ** 2 + (jy - sy) ** 2);
-            if (d < minInfo) {
-                minInfo = d;
+            if (d < minDist) {
+                minDist = d;
                 nearest = i;
             }
         }
         return nearest;
-    } catch { return null; }
+    } catch (e) {
+        console.error('Find nearest joint error:', e);
+        return null;
+    }
 }
 
 function navigateKeyframe(delta: number) {
-    const count = get_animation_keyframe_count();
+    if (!editorHandle) return;
+    const count = get_keyframe_count(editorHandle);
     if (count === 0) return;
 
     currentKeyframe = Math.max(0, Math.min(count - 1, currentKeyframe + delta));
-    set_editor_keyframe(currentKeyframe);
+    set_keyframe_index(editorHandle, currentKeyframe);
     updateUI();
 }
 
-function addKeyframe() {
+function addKeyframeHandler() {
+    if (!editorHandle) return;
     saveUndoState();
-    add_keyframe_copy(currentKeyframe);
+    add_keyframe(editorHandle, currentKeyframe);
     currentKeyframe++;
-    set_editor_keyframe(currentKeyframe);
+    set_keyframe_index(editorHandle, currentKeyframe);
     updateUI();
 }
 
-function deleteKeyframe() {
+function deleteKeyframeHandler() {
+    if (!editorHandle) return;
     saveUndoState();
-    remove_keyframe(currentKeyframe);
-    const count = get_animation_keyframe_count();
-    // Adjust index if needed
+    delete_keyframe(editorHandle, currentKeyframe);
+    const count = get_keyframe_count(editorHandle);
     if (currentKeyframe >= count) currentKeyframe = Math.max(0, count - 1);
 
-    set_editor_keyframe(currentKeyframe);
+    set_keyframe_index(editorHandle, currentKeyframe);
     updateUI();
 }
 
 function copyJson() {
+    if (!editorHandle) return;
     try {
-        const json = export_animation_json();
+        const json = export_clip_json(editorHandle);
         navigator.clipboard.writeText(json);
         const btn = document.getElementById('save-btn');
         if (btn) {
@@ -488,11 +517,17 @@ function copyJson() {
 // --- UI Updates ---
 
 function updateUI() {
-    const count = get_animation_keyframe_count();
-    const time = get_current_keyframe_time();
+    if (!editorHandle) {
+        const timeDisplay = document.getElementById('time-display');
+        if (timeDisplay) timeDisplay.textContent = 'No Animation';
+        return;
+    }
+
+    const count = get_keyframe_count(editorHandle);
+    const time = get_keyframe_time(editorHandle);
 
     const timeDisplay = document.getElementById('time-display');
-    if (timeDisplay) timeDisplay.textContent = `${time.toFixed(2)} s(Frame ${currentKeyframe + 1}/${count})`;
+    if (timeDisplay) timeDisplay.textContent = `${time.toFixed(2)} s (Frame ${currentKeyframe + 1}/${count})`;
 
     const statusText = document.getElementById('status-text');
     if (statusText) {

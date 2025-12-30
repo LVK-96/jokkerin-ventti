@@ -1,9 +1,7 @@
 //! Camera module
-//!
-//! Camera state is an immutable value type. Operations return new camera states
-//! rather than mutating in place.
-
 use glam::{Mat4, Quat, Vec3};
+use std::cell::Cell;
+use wasm_bindgen::prelude::*;
 
 /// Elevation limits as dot product of camera direction with world up
 const MIN_UP_DOT: f32 = 0.05; // Camera must be at least slightly above target
@@ -12,8 +10,6 @@ const MAX_UP_DOT: f32 = 0.98; // Don't allow looking straight down
 /// Target point for orbit camera (center of stickman)
 pub const CAMERA_TARGET: Vec3 = Vec3::new(0.0, 0.5, 0.0);
 
-/// Camera state - immutable value type for orbit camera
-///
 /// The camera orbits around a fixed target point. Its position is determined
 /// by rotating a "back" vector (0, 0, distance) by the orientation quaternion.
 #[derive(Clone, Copy, Debug)]
@@ -168,18 +164,9 @@ mod tests {
     }
 }
 
-// --- State Management ---
-// Moved from lib.rs/gpu.rs
-
-use std::cell::Cell;
-use wasm_bindgen::prelude::*;
-
 thread_local! {
     pub static CAMERA_STATE: Cell<Camera> = const { Cell::new(Camera {
         // Default orientation looking z-forward, will be overwritten by default() logic via new() or initial sync
-        // actually we can't call Camera::default() in const context easily without const fn
-        // But Camera is Copy, so we can construct it.
-        // Let's use a safe default here.
         orientation: Quat::from_xyzw(0.0, 0.12, 0.0, 0.99), // Approximate
         distance: 4.0
     }) };

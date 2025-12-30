@@ -5,11 +5,10 @@
 struct Uniforms {
     view: mat4x4<f32>,          // bytes 0-63
     projection: mat4x4<f32>,    // bytes 64-127
-    time: f32,                  // byte 128
     aspect: f32,                // byte 132
     screen_height: f32,         // byte 136
-    _padding: f32,              // byte 140
-    _padding4: vec4<f32>,       // bytes 144-159
+    _padding: vec2<f32>,        // byte 140-147
+    _padding4: vec4<f32>,       // bytes 148-159
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;

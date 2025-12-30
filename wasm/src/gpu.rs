@@ -3,7 +3,7 @@
 //! GPU init, shader compilation and skeleton rendering
 
 use static_assertions::const_assert_eq;
-// RefCell moved to lib.rs
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
@@ -31,6 +31,7 @@ pub struct Uniforms {
     pub screen_height: f32,        // 4 bytes
     pub _padding: [f32; 6],        // 24 bytes -> total 160 bytes
 }
+// Size of the uniforms struct needs to be a multiple of 16 bytes
 const_assert_eq!(std::mem::size_of::<Uniforms>(), 160);
 
 impl Default for Uniforms {
@@ -84,6 +85,18 @@ fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement
         (canvas.client_width() as f64 * dpr) as u32,
         (canvas.client_height() as f64 * dpr) as u32,
     )
+}
+
+// GPU_STATE is only available when compiling for wasm32 (browser)
+// On native targets, we use a stub type for compilation
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    pub static GPU_STATE: RefCell<Option<GpuContext>> = const { RefCell::new(None) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    pub static GPU_STATE: RefCell<Option<()>> = const { RefCell::new(None) };
 }
 
 /// Initialize WebGPU context from a canvas element
@@ -465,7 +478,7 @@ pub async fn init_gpu(canvas_id: String) {
         vertex_count,
         // Camera state - legacy init removed
     };
-    crate::GPU_STATE.with(|s| {
+    GPU_STATE.with(|s| {
         *s.borrow_mut() = Some(state);
     });
 
@@ -475,7 +488,7 @@ pub async fn init_gpu(canvas_id: String) {
 /// Resize the WebGPU surface when canvas size changes
 /// Call this from a window resize event listener
 #[wasm_bindgen]
-pub fn resize_gpu(canvas_id: String) {
+pub fn resize_surface(canvas_id: String) {
     let window = web_sys::window().expect("No window");
     let document = window.document().expect("No document");
     let canvas = document
@@ -488,13 +501,33 @@ pub fn resize_gpu(canvas_id: String) {
     canvas.set_width(width);
     canvas.set_height(height);
 
-    crate::GPU_STATE.with(|s| {
+    GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             // Update surface configuration
             state.config.width = width;
             state.config.height = height;
             state.surface.configure(&state.device, &state.config);
+
+            // Recreate depth texture with new dimensions
+            let depth_texture = state.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("depth_texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            state.depth_texture = depth_texture;
+            state.depth_view = state
+                .depth_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
             // Update aspect ratio and projection matrix
             let aspect = width as f32 / height as f32;
@@ -521,7 +554,7 @@ pub fn resize_gpu(canvas_id: String) {
 /// Call this after rotate_camera() to push the updated view matrix to the GPU.
 #[wasm_bindgen]
 pub fn sync_camera() {
-    crate::GPU_STATE.with(|s| {
+    GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
             let camera = crate::camera::CAMERA_STATE.get();
@@ -541,8 +574,8 @@ pub fn sync_camera() {
 /// Get the current camera view matrix as a Float32Array (16 floats, column-major)
 /// Used by TypeScript for gizmo rendering
 #[wasm_bindgen]
-pub fn get_camera_view_matrix() -> Vec<f32> {
-    crate::GPU_STATE.with(|s| {
+pub fn get_current_view_matrix() -> Vec<f32> {
+    GPU_STATE.with(|s| {
         let state_ref = s.borrow();
         if let Some(state) = state_ref.as_ref() {
             // Flatten the 4x4 view matrix to a Vec<f32>
@@ -553,47 +586,75 @@ pub fn get_camera_view_matrix() -> Vec<f32> {
         }
     })
 }
-/// Update skeleton animation based on current exercise and time
-/// Call this every frame before render_frame()
-/// In editor mode, displays the current keyframe's pose; otherwise animates.
+
+/// Get the current projection matrix
+/// Used by TypeScript for handle-based joint positioning
 #[wasm_bindgen]
-pub fn update_skeleton() {
-    // Get pose based on mode
-    let pose = crate::editor::EDITOR_STATE.with(|s| {
-        let state = s.borrow();
-        if state.active {
-            // In editor mode: display the current keyframe's pose
-            if let Some(clip) = &state.clip {
-                if let Some(keyframe) = clip.keyframes.get(state.keyframe_index) {
-                    return Some(keyframe.pose.clone());
-                }
-            }
-            return Some(RotationPose::bind_pose());
+pub fn get_current_projection_matrix() -> Vec<f32> {
+    GPU_STATE.with(|s| {
+        let state_ref = s.borrow();
+        if let Some(state) = state_ref.as_ref() {
+            let proj = &state.uniforms.projection;
+            proj.iter().flat_map(|row| row.iter().copied()).collect()
+        } else {
+            vec![0.0; 16]
         }
-        None // Normal mode - handled below
+    })
+}
+
+/// Update skeleton from a handle-based editor session
+/// Call this every frame before render_frame() when using the new handle-based API
+#[wasm_bindgen]
+pub fn update_skeleton_from_session(handle: u32) {
+    use crate::editor::{EditorHandle, with_session_ref};
+
+    let pose = with_session_ref(handle as EditorHandle, |session| {
+        session
+            .clip
+            .keyframes
+            .get(session.keyframe_index)
+            .map(|kf| kf.pose.clone())
+            .unwrap_or_else(RotationPose::bind_pose)
     });
 
-    // For normal mode, use the separate animation state
-    let mut pose = pose.unwrap_or_else(|| {
-        // Get playback state
-        let playback = crate::animation::PLAYBACK_STATE.with(|p| p.borrow().clone());
+    let mut pose = pose.unwrap_or_else(RotationPose::bind_pose);
 
-        // Sample animation from library (pure function)
-        crate::animation::ANIMATION_LIBRARY.with(|lib| {
-            let library = lib.borrow();
-            crate::animation::sample_animation(&library, &playback)
-        })
+    // Update GPU buffers
+    GPU_STATE.with(|s| {
+        let mut state_ref = s.borrow_mut();
+        if let Some(state) = state_ref.as_mut() {
+            pose = pose.apply_floor_constraint();
+            let skeleton = pose.to_skeleton();
+            let matrices = skeleton.compute_bone_matrices();
+
+            state.queue.write_buffer(
+                &state.bone_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&matrices),
+            );
+        }
+    });
+}
+
+/// Update skeleton from the current animation playback state
+/// Call this every frame before render_frame() for non-editor mode
+#[wasm_bindgen]
+pub fn update_skeleton_from_playback() {
+    // Get playback state
+    let playback = crate::animation::PLAYBACK_STATE.with(|p| p.borrow().clone());
+
+    // Sample animation from library (pure function)
+    let mut pose = crate::animation::ANIMATION_LIBRARY.with(|lib| {
+        let library = lib.borrow();
+        crate::animation::sample_animation(&library, &playback)
     });
 
     // Update GPU buffers
-    crate::GPU_STATE.with(|s| {
+    GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
-            // Apply floor constraint (simplistic, just keeps hips above floor)
-            // Ideally this would be part of a "physics" pass
-            if pose.root_position.y > 0.0 {
-                // pose.root_position.y = pose.root_position.y.max(0.85); // Hips height
-            }
+            // Apply floor constraint (keeps hips above floor)
+            pose = pose.apply_floor_constraint();
 
             let skeleton = pose.to_skeleton();
             let matrices = skeleton.compute_bone_matrices();
@@ -607,10 +668,10 @@ pub fn update_skeleton() {
     });
 }
 
-/// Render a frame with the skeleton
+/// Render a frame
 #[wasm_bindgen]
 pub fn render_frame() {
-    crate::GPU_STATE.with(|s| {
+    GPU_STATE.with(|s| {
         let state_ref = s.borrow();
         if let Some(state) = state_ref.as_ref() {
             let output = match state.surface.get_current_texture() {
@@ -676,6 +737,3 @@ pub fn render_frame() {
 }
 
 // Editor functions moved to editor.rs
-
-// export_animation_json moved to editor.rs
-pub fn dummy_placeholder() {}

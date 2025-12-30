@@ -441,6 +441,7 @@ async function init(): Promise<void> {
         load_animation(name, animJson);
     }
 
+
     resetElementsWithText();
     storeElementsWithText();
 

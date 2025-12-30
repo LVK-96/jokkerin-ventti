@@ -4,7 +4,7 @@
  * Loads the Rust Wasm module and initializes WebGPU from Rust.
  */
 
-import init, { init_gpu, render_frame, resize_gpu, advance_time, update_skeleton, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+import init, { init_gpu, render_frame, resize_surface, advance_time, update_skeleton_from_playback, set_exercise, load_animation, add, log } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { initCameraControls, updateCameraFromInput } from './camera';
 
 export { set_exercise, load_animation };
@@ -32,7 +32,7 @@ function animate(time: number): void {
     updateCameraFromInput();
 
     // Update skeleton animation
-    update_skeleton();
+    update_skeleton_from_playback();
 
     // Render the frame
     render_frame();
@@ -70,7 +70,7 @@ export async function startEngine(): Promise<void> {
         // Handle window resize
         window.addEventListener('resize', () => {
             console.log('Window resize event fired');
-            resize_gpu('gpu-canvas');
+            resize_surface('gpu-canvas');
         });
     } catch (e) {
         console.error('WebGPU initialization failed:', e);

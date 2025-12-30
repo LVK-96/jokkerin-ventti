@@ -8,10 +8,8 @@
 //!
 //! - **BoneId**: Enum identifying each bone in the skeleton
 //! - **BONE_HIERARCHY**: Static definition of parent-child relationships and rest lengths
-//! - **RotationPose**: Animation pose using local quaternion rotations
-//! - **Lazy FK**: Forward kinematics with dirty flag tracking for efficiency
-
-#![allow(dead_code)] // Module is new, will be integrated incrementally
+//! - **RotationPose**: Animation pose using local quaternion rotations and functional API
+//! - **Lazy FK**: Forward kinematics with dirty flag tracking for efficiency (hidden via interior mutability)
 
 use glam::{Quat, Vec3};
 
@@ -190,6 +188,8 @@ pub const BONE_HIERARCHY: [BoneDef; BoneId::COUNT] = [
     },
 ];
 
+use std::cell::RefCell;
+
 /// Dirty flags for lazy forward kinematics evaluation.
 /// Uses a bitset where bit i corresponds to BoneId with index i.
 #[derive(Debug, Clone, Copy, Default)]
@@ -208,28 +208,31 @@ impl DirtyFlags {
     }
 
     /// Mark a bone and all its children as dirty
-    pub fn mark_dirty(&mut self, bone: BoneId) {
+    /// Return new flags with a bone and all its children marked as dirty
+    pub fn with_marked_dirty(self, bone: BoneId) -> Self {
+        let mut new_flags = self;
         // Mark this bone
-        self.0 |= 1 << bone.index();
+        new_flags.0 |= 1 << bone.index();
 
         // Mark all children (bones that have this as ancestor)
         for child in BoneId::ALL.iter().skip(bone.index() + 1) {
             if Self::is_descendant_of(*child, bone) {
-                self.0 |= 1 << child.index();
+                new_flags.0 |= 1 << child.index();
             }
         }
+        new_flags
     }
 
-    /// Clear dirty flag for a bone
+    /// Return new flags with dirty flag cleared for a bone
     #[inline]
-    pub fn clear(&mut self, bone: BoneId) {
-        self.0 &= !(1 << bone.index());
+    pub fn with_cleared(self, bone: BoneId) -> Self {
+        Self(self.0 & !(1 << bone.index()))
     }
 
-    /// Clear all dirty flags
+    /// Return clean flags
     #[inline]
-    pub fn clear_all(&mut self) {
-        self.0 = 0;
+    pub fn cleared() -> Self {
+        Self(0)
     }
 
     /// Check if child is a descendant of ancestor
@@ -248,10 +251,35 @@ impl DirtyFlags {
     }
 }
 
+/// Cache for forward kinematics results
+#[derive(Debug, Clone)]
+struct PoseCache {
+    /// Cached world transforms (position, rotation)
+    /// Lazily computed when needed
+    world_positions: [Vec3; BoneId::COUNT],
+    world_rotations: [Quat; BoneId::COUNT],
+
+    /// Dirty flags for lazy evaluation
+    dirty: DirtyFlags,
+}
+
+impl Default for PoseCache {
+    fn default() -> Self {
+        Self {
+            world_positions: [Vec3::ZERO; BoneId::COUNT],
+            world_rotations: [Quat::IDENTITY; BoneId::COUNT],
+            dirty: DirtyFlags::all_dirty(),
+        }
+    }
+}
+
 /// Rotation-based pose for animation.
 ///
 /// Each bone stores a local rotation (relative to parent).
-/// World positions are computed via forward kinematics.
+/// World positions are computed via forward kinematics and cached internally.
+///
+/// This struct uses a functional API for state updates (`with_rotation`) but
+/// employs interior mutability (`RefCell`) for efficient lazy evaluation.
 #[derive(Debug, Clone)]
 pub struct RotationPose {
     /// Root position in world space
@@ -260,13 +288,8 @@ pub struct RotationPose {
     /// Local rotation for each bone (relative to parent)
     pub local_rotations: [Quat; BoneId::COUNT],
 
-    /// Cached world transforms (position, rotation)
-    /// Lazily computed when needed
-    world_positions: [Vec3; BoneId::COUNT],
-    world_rotations: [Quat; BoneId::COUNT],
-
-    /// Dirty flags for lazy evaluation
-    dirty: DirtyFlags,
+    /// Cache for derived world transforms
+    cache: RefCell<PoseCache>,
 }
 
 impl Default for RotationPose {
@@ -278,53 +301,60 @@ impl Default for RotationPose {
 impl RotationPose {
     /// Create the bind pose (T-pose) with all rotations at identity
     pub fn bind_pose() -> Self {
-        let root_position = Vec3::new(0.0, 0.55, 0.0); // Hips position from skeleton_constants
+        let root_position = Vec3::new(0.0, DEFAULT_HIPS_Y, 0.0); // Hips position from skeleton_constants
 
         Self {
             root_position,
             local_rotations: [Quat::IDENTITY; BoneId::COUNT],
-            world_positions: [Vec3::ZERO; BoneId::COUNT],
-            world_rotations: [Quat::IDENTITY; BoneId::COUNT],
-            dirty: DirtyFlags::all_dirty(),
+            cache: RefCell::new(PoseCache::default()),
         }
     }
 
-    /// Set the local rotation for a bone (marks it and children dirty)
-    pub fn set_rotation(&mut self, bone: BoneId, rotation: Quat) {
-        if self.local_rotations[bone.index()] != rotation {
-            self.local_rotations[bone.index()] = rotation;
-            self.dirty.mark_dirty(bone);
+    /// Return a new pose with the specified bone rotation (Functional Set)
+    pub fn with_rotation(self, bone: BoneId, rotation: Quat) -> Self {
+        let mut new_pose = self;
+        if new_pose.local_rotations[bone.index()] != rotation {
+            new_pose.local_rotations[bone.index()] = rotation;
+            // Mark dirty in the new instance's cache
+            let mut cache = new_pose.cache.borrow_mut();
+            cache.dirty = cache.dirty.with_marked_dirty(bone);
         }
+        new_pose
     }
 
-    /// Set root position (marks all bones dirty)
-    pub fn set_root_position(&mut self, position: Vec3) {
-        if self.root_position != position {
-            self.root_position = position;
-            self.dirty = DirtyFlags::all_dirty();
+    /// Return a new pose with the specified root position (Functional Set)
+    pub fn with_root_position(self, position: Vec3) -> Self {
+        let mut new_pose = self;
+        if new_pose.root_position != position {
+            new_pose.root_position = position;
+            new_pose.cache.borrow_mut().dirty = DirtyFlags::all_dirty();
         }
+        new_pose
     }
 
     /// Mark all bones as needing recomputation
-    pub fn mark_all_dirty(&mut self) {
-        self.dirty = DirtyFlags::all_dirty();
+    pub fn with_all_dirty(self) -> Self {
+        let new_pose = self;
+        new_pose.cache.borrow_mut().dirty = DirtyFlags::all_dirty();
+        new_pose
     }
 
     /// Get world position of a bone's end joint (computes FK if needed)
-    pub fn get_position(&mut self, bone: BoneId) -> Vec3 {
+    pub fn get_position(&self, bone: BoneId) -> Vec3 {
         self.ensure_computed(bone);
-        self.world_positions[bone.index()]
+        self.cache.borrow().world_positions[bone.index()]
     }
 
     /// Ensure a bone's world transform is computed
-    fn ensure_computed(&mut self, bone: BoneId) {
-        if !self.dirty.is_dirty(bone) {
+    fn ensure_computed(&self, bone: BoneId) {
+        let is_dirty = self.cache.borrow().dirty.is_dirty(bone);
+        if !is_dirty {
             return;
         }
 
         // Compute all ancestors first (they're ordered topologically)
         for ancestor in BoneId::ALL.iter().take(bone.index()) {
-            if self.dirty.is_dirty(*ancestor) {
+            if self.cache.borrow().dirty.is_dirty(*ancestor) {
                 self.compute_bone(*ancestor);
             }
         }
@@ -334,14 +364,17 @@ impl RotationPose {
     }
 
     /// Compute the world transform for a single bone
-    fn compute_bone(&mut self, bone: BoneId) {
+    fn compute_bone(&self, bone: BoneId) {
         let def = &BONE_HIERARCHY[bone.index()];
         let local_rot = self.local_rotations[bone.index()];
 
+        // We need mutable access to the cache to write results.
+        let mut cache = self.cache.borrow_mut();
+
         let (parent_pos, parent_rot) = if let Some(parent) = def.parent {
             (
-                self.world_positions[parent.index()],
-                self.world_rotations[parent.index()],
+                cache.world_positions[parent.index()],
+                cache.world_rotations[parent.index()],
             )
         } else {
             // Root bone
@@ -349,11 +382,10 @@ impl RotationPose {
         };
 
         // Apply hip offsets for thighs to ensure legs are connected to hips visually
-        // This corresponds to the pelvic width
         let parent_pos = if bone == BoneId::LeftThigh {
-            parent_pos + parent_rot * Vec3::new(-0.02, -0.05, 0.0)
+            parent_pos + parent_rot * Vec3::new(-HIP_OFFSET_X, -HIP_OFFSET_Y, 0.0)
         } else if bone == BoneId::RightThigh {
-            parent_pos + parent_rot * Vec3::new(0.02, -0.05, 0.0)
+            parent_pos + parent_rot * Vec3::new(HIP_OFFSET_X, -HIP_OFFSET_Y, 0.0)
         } else {
             parent_pos
         };
@@ -365,73 +397,83 @@ impl RotationPose {
         let bone_vector = world_rot * (def.direction.normalize() * def.length);
         let world_pos = parent_pos + bone_vector;
 
-        self.world_rotations[bone.index()] = world_rot;
-        self.world_positions[bone.index()] = world_pos;
-        self.dirty.clear(bone);
+        cache.world_rotations[bone.index()] = world_rot;
+        cache.world_positions[bone.index()] = world_pos;
+        cache.dirty = cache.dirty.with_cleared(bone);
     }
 
     /// Force recomputation of all bones (useful after bulk updates)
-    pub fn compute_all(&mut self) {
+    pub fn compute_all(&self) {
         for bone in BoneId::ALL {
             self.compute_bone(bone);
         }
-        self.dirty.clear_all();
+        self.cache.borrow_mut().dirty = DirtyFlags::cleared();
     }
-    pub fn apply_floor_constraint(&mut self) {
+
+    pub fn apply_floor_constraint(self) -> Self {
+        // Need to compute to check positions
         self.compute_all();
         use crate::skeleton::BONE_RADIUS;
 
         let mut min_y = self.root_position.y;
-        for i in 0..BoneId::COUNT {
-            min_y = min_y.min(self.world_positions[i].y);
+        {
+            let cache = self.cache.borrow();
+            for i in 0..BoneId::COUNT {
+                min_y = min_y.min(cache.world_positions[i].y);
+            }
+
+            // Also check hip offsets
+            let left_hip_y = self.root_position.y
+                + (cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0)).y;
+            let right_hip_y = self.root_position.y
+                + (cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0)).y;
+            min_y = min_y.min(left_hip_y).min(right_hip_y);
         }
 
-        // Also check hip offsets
-        let left_hip_y = self.root_position.y
-            + (self.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0)).y;
-        let right_hip_y = self.root_position.y
-            + (self.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0)).y;
-        min_y = min_y.min(left_hip_y).min(right_hip_y);
-
+        let mut new_pose = self;
         if min_y < BONE_RADIUS {
-            self.root_position.y += BONE_RADIUS - min_y;
-            self.mark_all_dirty();
-            self.compute_all(); // Update world positions for correct return values
+            new_pose.root_position.y += BONE_RADIUS - min_y;
+            new_pose = new_pose.with_all_dirty();
+            // Ensure consistency immediately
+            new_pose.compute_all();
         }
+        new_pose
     }
 
     /// Convert to the old Skeleton format for rendering compatibility
-    pub fn to_skeleton(&mut self) -> crate::skeleton::Skeleton {
-        self.apply_floor_constraint();
+    pub fn to_skeleton(&self) -> crate::skeleton::Skeleton {
+        self.ensure_computed(BoneId::LeftShin); // Hack to trigger chain? Better just compute_all
+        self.compute_all();
 
         use glam::Vec3A;
+        let cache = self.cache.borrow();
 
         // Map rotation pose joints to skeleton positions
         crate::skeleton::Skeleton {
             hips: Vec3A::from(self.root_position),
-            neck: Vec3A::from(self.world_positions[BoneId::Spine.index()]),
-            head: Vec3A::from(self.world_positions[BoneId::Head.index()]),
-            left_shoulder: Vec3A::from(self.world_positions[BoneId::LeftShoulder.index()]),
-            left_elbow: Vec3A::from(self.world_positions[BoneId::LeftUpperArm.index()]),
-            left_hand: Vec3A::from(self.world_positions[BoneId::LeftForearm.index()]),
-            right_shoulder: Vec3A::from(self.world_positions[BoneId::RightShoulder.index()]),
-            right_elbow: Vec3A::from(self.world_positions[BoneId::RightUpperArm.index()]),
-            right_hand: Vec3A::from(self.world_positions[BoneId::RightForearm.index()]),
+            neck: Vec3A::from(cache.world_positions[BoneId::Spine.index()]),
+            head: Vec3A::from(cache.world_positions[BoneId::Head.index()]),
+            left_shoulder: Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]),
+            left_elbow: Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]),
+            left_hand: Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]),
+            right_shoulder: Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]),
+            right_elbow: Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]),
+            right_hand: Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]),
 
             // Calculate actual hip positions based on root rotation + offset
             left_hip: Vec3A::from(
                 self.root_position
-                    + self.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0),
+                    + cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0),
             ),
-            left_knee: Vec3A::from(self.world_positions[BoneId::LeftThigh.index()]),
-            left_foot: Vec3A::from(self.world_positions[BoneId::LeftShin.index()]),
+            left_knee: Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]),
+            left_foot: Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]),
 
             right_hip: Vec3A::from(
                 self.root_position
-                    + self.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0),
+                    + cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0),
             ),
-            right_knee: Vec3A::from(self.world_positions[BoneId::RightThigh.index()]),
-            right_foot: Vec3A::from(self.world_positions[BoneId::RightShin.index()]),
+            right_knee: Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]),
+            right_foot: Vec3A::from(cache.world_positions[BoneId::RightShin.index()]),
         }
     }
 
@@ -447,20 +489,24 @@ impl RotationPose {
             result.local_rotations[i] = a.local_rotations[i].slerp(b.local_rotations[i], t);
         }
 
-        // Mark all dirty since we've modified everything
-        result.dirty = DirtyFlags::all_dirty();
+        // Mark all dirty
+        result.cache.borrow_mut().dirty = DirtyFlags::all_dirty();
 
         result
     }
 
+    pub const IK_ITERATIONS: usize = 10;
+    pub const IK_TOLERANCE: f32 = 0.001;
+
     /// Apply IK to a chain of bones to reach a target position.
+    /// Returns modified self (Functional Chain).
     ///
     /// # Arguments
     /// * `chain` - List of bone IDs in the chain (parent to child/end-effector)
     /// * `target` - Target world position for the end effector
-    pub fn apply_ik(&mut self, chain: &[BoneId], target: Vec3) {
+    pub fn apply_ik(self, chain: &[BoneId], target: Vec3) -> Self {
         if chain.is_empty() {
-            return;
+            return self;
         }
 
         // 1. Gather current world positions and bone lengths
@@ -468,13 +514,8 @@ impl RotationPose {
         let mut lengths = Vec::with_capacity(chain.len());
 
         // Start position (parent of first bone in chain)
-        // If first bone is root, start is root pose.
-        // If first bone has parent, start is parent's end position.
-        // Actually, RotationPose's world_positions array stores the END position of each bone.
-        // So joint[0] should be the START of chain[0].
-        // The start of chain[0] is the END of chain[0].parent.
-
         let start_bone = chain[0];
+
         let root_pos = if let Some(parent) = BONE_HIERARCHY[start_bone.index()].parent {
             self.get_position(parent)
         } else {
@@ -488,77 +529,46 @@ impl RotationPose {
         }
 
         // 2. Solve IK (FABRIK)
-        let solved_joints = crate::ik::solve_fabrik(joints, &lengths, target, 10, 0.001);
+        let solved_joints = crate::ik::solve_fabrik(
+            joints,
+            &lengths,
+            target,
+            Self::IK_ITERATIONS,
+            Self::IK_TOLERANCE,
+        );
 
         // 3. Update local rotations
-        // We iterate through the chain. For each bone, we align it to the vector between solved joints.
-
-        // We need to keep track of the cumulative parent rotation to compute local rotation.
-        // The parent of the first bone (chain[0]) is fixed (not modified by this IK).
         let mut current_parent_rot = if let Some(parent) = BONE_HIERARCHY[start_bone.index()].parent
         {
-            self.world_rotations[parent.index()]
+            self.ensure_computed(parent);
+            self.cache.borrow().world_rotations[parent.index()]
         } else {
             Quat::IDENTITY
         };
 
+        let mut new_pose = self;
         for (i, &bone) in chain.iter().enumerate() {
             let def = &BONE_HIERARCHY[bone.index()];
 
-            // Vector from start of bone to end of bone (from solver)
             let start_pos = solved_joints[i];
             let end_pos = solved_joints[i + 1];
             let target_vec = end_pos - start_pos;
 
-            if target_vec.length_squared() < 1e-6 {
+            if target_vec.length_squared() < EPSILON {
                 continue;
             }
-
-            // Target vector in parent's local space
-            // R_parent_world * R_local * Direction_local * Length = Target_vec_world
-            // R_local * Direction_local = R_parent_world^-1 * Target_vec_world / Length? No, just direction.
-            // Let TargetDir_local = R_parent_world^-1 * Target_vec_world.normalize()
 
             let target_dir_local = current_parent_rot.inverse() * target_vec.normalize();
             let default_dir = def.direction.normalize();
 
-            // Calculate rotation from default direction to target direction
-            // We use Quat::from_rotation_arc which gives the shortest rotation
             let delta_rot = Quat::from_rotation_arc(default_dir, target_dir_local);
 
-            // Update local rotation
-            self.set_rotation(bone, delta_rot.normalize());
-
-            // Recompute THIS bone's world transform immediately so the next bone uses the correct parent rot
-            // We can't use self.compute_bone() optimally because it might check dirty flags or use old parent data if we aren't careful?
-            // Actually, we updated local_rot, marked dirty.
-            // compute_bone(bone) will use parent's world rotation (which we know is current_parent_rot).
-            // But wait, compute_bone reads parent world rotation from self.world_rotations array.
-            // Is self.world_rotations[parent] correct?
-            // For i=0: yes, parent is outside chain, unmodified.
-            // For i>0: parent is chain[i-1]. We just updated it in previous loop iteration.
-            // BUT we only updated its local rotation! We didn't call compute_bone on it yet (or did we?).
-            // We MUST update the world rotation of the current bone to serve as parent for the next.
-
-            // Let's compute it manually or call compute_bone.
-            // calling compute_bone is safer as it manages state.
-            // But we need to ensure parent is computed.
-
-            // Optimization: we calculate world_rot manually here to update `current_parent_rot` for next iteration.
-            // R_world = R_parent_world * R_local
-
-            // Update state
-            // self.world_positions[bone.index()] = end_pos;   // compute_bone does this (recalculates from rot)
-
-            // Note: solved "end_pos" might slightly differ from "computed pos" due to length constraint enforcement in compute_bone.
-            // FABRIK enforces lengths, so they should match.
-
-            // Let's force update this bone
-            self.compute_bone(bone);
-
-            // Prepare for next bone
-            current_parent_rot = self.world_rotations[bone.index()];
+            new_pose = new_pose.with_rotation(bone, delta_rot.normalize());
+            new_pose.compute_bone(bone);
+            current_parent_rot = new_pose.cache.borrow().world_rotations[bone.index()];
         }
+
+        new_pose
     }
 }
 
@@ -613,13 +623,22 @@ pub struct RotationPoseJson {
     pub spine: Option<EulerAngles>,
 
     #[serde(default)]
+    pub neck: Option<EulerAngles>,
+
+    #[serde(default)]
     pub head: Option<EulerAngles>,
+
+    #[serde(default)]
+    pub left_shoulder: Option<EulerAngles>,
 
     #[serde(default)]
     pub left_upper_arm: Option<EulerAngles>,
 
     #[serde(default)]
     pub left_forearm: Option<EulerAngles>,
+
+    #[serde(default)]
+    pub right_shoulder: Option<EulerAngles>,
 
     #[serde(default)]
     pub right_upper_arm: Option<EulerAngles>,
@@ -657,14 +676,23 @@ impl RotationPoseJson {
         if let Some(euler) = self.spine {
             pose.local_rotations[BoneId::Spine.index()] = euler.to_quat();
         }
+        if let Some(euler) = self.neck {
+            pose.local_rotations[BoneId::Neck.index()] = euler.to_quat();
+        }
         if let Some(euler) = self.head {
             pose.local_rotations[BoneId::Head.index()] = euler.to_quat();
+        }
+        if let Some(euler) = self.left_shoulder {
+            pose.local_rotations[BoneId::LeftShoulder.index()] = euler.to_quat();
         }
         if let Some(euler) = self.left_upper_arm {
             pose.local_rotations[BoneId::LeftUpperArm.index()] = euler.to_quat();
         }
         if let Some(euler) = self.left_forearm {
             pose.local_rotations[BoneId::LeftForearm.index()] = euler.to_quat();
+        }
+        if let Some(euler) = self.right_shoulder {
+            pose.local_rotations[BoneId::RightShoulder.index()] = euler.to_quat();
         }
         if let Some(euler) = self.right_upper_arm {
             pose.local_rotations[BoneId::RightUpperArm.index()] = euler.to_quat();
@@ -793,9 +821,19 @@ impl RotationPose {
                 self.local_rotations[BoneId::Spine.index()],
             ));
         }
+        if !is_identity(self.local_rotations[BoneId::Neck.index()]) {
+            json.neck = Some(EulerAngles::from_quat(
+                self.local_rotations[BoneId::Neck.index()],
+            ));
+        }
         if !is_identity(self.local_rotations[BoneId::Head.index()]) {
             json.head = Some(EulerAngles::from_quat(
                 self.local_rotations[BoneId::Head.index()],
+            ));
+        }
+        if !is_identity(self.local_rotations[BoneId::LeftShoulder.index()]) {
+            json.left_shoulder = Some(EulerAngles::from_quat(
+                self.local_rotations[BoneId::LeftShoulder.index()],
             ));
         }
         if !is_identity(self.local_rotations[BoneId::LeftUpperArm.index()]) {
@@ -806,6 +844,11 @@ impl RotationPose {
         if !is_identity(self.local_rotations[BoneId::LeftForearm.index()]) {
             json.left_forearm = Some(EulerAngles::from_quat(
                 self.local_rotations[BoneId::LeftForearm.index()],
+            ));
+        }
+        if !is_identity(self.local_rotations[BoneId::RightShoulder.index()]) {
+            json.right_shoulder = Some(EulerAngles::from_quat(
+                self.local_rotations[BoneId::RightShoulder.index()],
             ));
         }
         if !is_identity(self.local_rotations[BoneId::RightUpperArm.index()]) {
@@ -894,10 +937,11 @@ impl RotationAnimationClip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_bindgen_test::*;
 
     #[test]
     fn test_bind_pose_positions() {
-        let mut pose = RotationPose::bind_pose();
+        let pose = RotationPose::bind_pose();
         // Force computation to ensure world positions are ready
         pose.compute_all();
 
@@ -926,16 +970,16 @@ mod tests {
 
     #[test]
     fn test_floor_constraint() {
-        let mut pose = RotationPose::bind_pose();
+        let pose = RotationPose::bind_pose();
         // Move root way below floor
-        pose.set_root_position(Vec3::new(0.0, -2.0, 0.0));
+        let mut pose = pose.with_root_position(Vec3::new(0.0, -2.0, 0.0));
         pose.compute_all();
 
         // Verify it's below floor
         assert!(pose.get_position(BoneId::Hips).y < 0.0);
 
         // Apply constraint
-        pose.apply_floor_constraint();
+        pose = pose.apply_floor_constraint();
 
         // Should be lifted
         // The lowest point should be at BONE_RADIUS (approx 0.05)
@@ -954,7 +998,7 @@ mod tests {
 
     #[test]
     fn test_ik_preserves_chain_lengths() {
-        let mut pose = RotationPose::bind_pose();
+        let pose = RotationPose::bind_pose();
         let chain = [
             BoneId::LeftShoulder,
             BoneId::LeftUpperArm,
@@ -962,10 +1006,6 @@ mod tests {
         ];
 
         // Get initial lengths
-        // Note: get_position returns the END of the bone.
-        // So LeftShoulder pos is the shoulder joint.
-        // LeftUpperArm pos is the elbow joint.
-        // LeftForearm pos is the hand joint.
         let pos_shoulder = pose.get_position(BoneId::LeftShoulder);
         let pos_elbow = pose.get_position(BoneId::LeftUpperArm);
         let pos_hand = pose.get_position(BoneId::LeftForearm);
@@ -975,7 +1015,7 @@ mod tests {
 
         // Apply IK to a new target
         let target = Vec3::new(0.5, 0.5, 0.5);
-        pose.apply_ik(&chain, target);
+        let pose = pose.apply_ik(&chain, target);
 
         let new_pos_shoulder = pose.get_position(BoneId::LeftShoulder);
         let new_pos_elbow = pose.get_position(BoneId::LeftUpperArm);
@@ -998,13 +1038,13 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_animation_interpolation() {
         let pose_a = RotationPose::bind_pose();
-        let mut pose_b = RotationPose::bind_pose();
+        let pose_b = RotationPose::bind_pose();
 
         // Rotate spine 90 degrees around X in pose B
-        pose_b.set_rotation(
+        let pose_b = pose_b.with_rotation(
             BoneId::Spine,
             Quat::from_rotation_x(std::f32::consts::PI / 2.0),
         );
@@ -1030,76 +1070,63 @@ mod tests {
         let spine_rot = sample.local_rotations[BoneId::Spine.index()];
         let (axis, angle) = spine_rot.to_axis_angle();
 
-        // Should be roughly 45 degrees (PI/4) around X
-        // Depending on quaternion normalization/shortest path, axis might be X or -X.
         let expected_angle = std::f32::consts::PI / 4.0;
-        
-        // If axis is close to X, angle should be ~45.
-        // If axis is close to -X, angle should be ~-45 (which is 315, or represented as 45 around -X).
-        // to_axis_angle usually returns positive angle and flips axis.
-        
+
         if (axis - Vec3::X).length() < 0.01 {
             assert!(
                 (angle - expected_angle).abs() < 0.01,
                 "Angle should be 45 deg, got {}",
                 angle.to_degrees()
             );
-        } else if (axis - Vec3::NEG_X).length() < 0.01 {
-             // If it picked -X, then it might be representing -45 degrees?
-             // But bind pose is 0. Target is +90. Halfway is +45. 
-             // It shouldn't be negative unless it went the long way? Slerp goes shortest way.
-             // So it should be +45 around X.
-             // Maybe to_axis_angle did something weird or my expectation of "X" is wrong?
-             // Let's just check the rotation applied to a vector.
-             
-             // panic!("Unexpected rotation axis: {}", axis);
         }
-        
-        // Safer check: apply rotation to Y axis (Spine direction)
-        // Bind pose (0 rot): Y points up (0, 1, 0)
-        // Target (90 rot X): Y points to Z (0, 0, 1) [Right hand rule: X is right. Y up. Z forward (out of screen?)]
-        // Wait, standard coordinate systems...
-        // If X is Right, Y is Up. 90 deg around X: Y -> Z.
-        // Halfway (45 deg): Y -> (0, 0.707, 0.707).
-        
+
         let rotated_y = spine_rot * Vec3::Y;
-        assert!((rotated_y.y - 0.707).abs() < 0.01, "Rotated Y.y should be ~0.707, got {}", rotated_y.y);
-        assert!((rotated_y.z - 0.707).abs() < 0.01, "Rotated Y.z should be ~0.707, got {}", rotated_y.z);
+        assert!(
+            (rotated_y.y - 0.707).abs() < 0.01,
+            "Rotated Y.y should be ~0.707, got {}",
+            rotated_y.y
+        );
+        assert!(
+            (rotated_y.z - 0.707).abs() < 0.01,
+            "Rotated Y.z should be ~0.707, got {}",
+            rotated_y.z
+        );
     }
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_lazy_evaluation() {
-        let mut pose = RotationPose::bind_pose();
+        let pose = RotationPose::bind_pose();
 
-        // Initially all dirty
-        assert!(pose.dirty.is_dirty(BoneId::Head));
+        // Initially all dirty (inside private cache, hard to check directly via public API without exposing)
+        // Check via cache (visible in child mod)
+        assert!(pose.cache.borrow().dirty.is_dirty(BoneId::Head));
 
         // Access head position - should compute
         let _ = pose.get_position(BoneId::Head);
 
         // Now computed bones should be clean
-        assert!(!pose.dirty.is_dirty(BoneId::Hips));
-        assert!(!pose.dirty.is_dirty(BoneId::Spine));
-        assert!(!pose.dirty.is_dirty(BoneId::Head));
+        assert!(!pose.cache.borrow().dirty.is_dirty(BoneId::Hips));
+        assert!(!pose.cache.borrow().dirty.is_dirty(BoneId::Spine));
+        assert!(!pose.cache.borrow().dirty.is_dirty(BoneId::Head));
     }
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_dirty_propagation() {
-        let mut pose = RotationPose::bind_pose();
+        let pose = RotationPose::bind_pose();
         pose.compute_all();
 
         // All clean now
-        assert!(!pose.dirty.is_dirty(BoneId::Head));
+        assert!(!pose.cache.borrow().dirty.is_dirty(BoneId::Head));
 
         // Rotate spine - should dirty head (child) but not legs
-        pose.set_rotation(BoneId::Spine, Quat::from_rotation_x(0.5));
+        let pose = pose.with_rotation(BoneId::Spine, Quat::from_rotation_x(0.5));
 
-        assert!(pose.dirty.is_dirty(BoneId::Spine));
-        assert!(pose.dirty.is_dirty(BoneId::Head)); // Child of spine
-        assert!(!pose.dirty.is_dirty(BoneId::LeftThigh)); // Not a child
+        assert!(pose.cache.borrow().dirty.is_dirty(BoneId::Spine));
+        assert!(pose.cache.borrow().dirty.is_dirty(BoneId::Head)); // Child of spine
+        assert!(!pose.cache.borrow().dirty.is_dirty(BoneId::LeftThigh)); // Not a child
     }
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_euler_to_quat() {
         let euler = EulerAngles {
             x: 90.0,
@@ -1108,9 +1135,7 @@ mod tests {
         };
         let quat = euler.to_quat();
 
-        // 90 degree rotation around X: Y axis rotates toward -Z (right-hand rule)
         let rotated = quat * Vec3::Y;
-        // Y should be near 0, Z should be near -1
         assert!(rotated.y.abs() < 0.01, "Y should be ~0, got {}", rotated.y);
         assert!(
             (rotated.z - (-1.0)).abs() < 0.01 || (rotated.z - 1.0).abs() < 0.01,
@@ -1119,7 +1144,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_animation_parsing() {
         let json = r#"{
             "name": "test",

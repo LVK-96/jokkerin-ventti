@@ -1,4 +1,4 @@
-import { get_camera_view_matrix } from '../../wasm/pkg/jokkerin_ventti_wasm';
+import { get_current_view_matrix } from '../../wasm/pkg/jokkerin_ventti_wasm';
 
 /**
  * Draw the gizmo showing world coordinate axes
@@ -8,7 +8,7 @@ export function drawGizmo(ctx: CanvasRenderingContext2D) {
     // Get view matrix from WASM (flattened 4x4, column-major)
     let viewMatrix: Float32Array;
     try {
-        viewMatrix = get_camera_view_matrix();
+        viewMatrix = get_current_view_matrix();
     } catch {
         // GPU not initialized yet, skip gizmo
         return;

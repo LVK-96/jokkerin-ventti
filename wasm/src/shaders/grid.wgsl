@@ -1,8 +1,19 @@
 // Procedural floor grid shader
 
+// Sky overriden at shader compile time
 override SKY_R: f32;
 override SKY_G: f32;
 override SKY_B: f32;
+
+// White
+const FLOOR_R: f32 = 1.0;
+const FLOOR_G: f32 = 1.0;
+const FLOOR_B: f32 = 1.0;
+
+// Gray
+const GRID_R: f32 = 0.7;
+const GRID_G: f32 = 0.7;
+const GRID_B: f32 = 0.7;
 
 struct Uniforms {
     view: mat4x4<f32>,
@@ -99,12 +110,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let grid_fade = 1.0 - horizon_fade;
 
     // Background color: White floor near camera, Sky blue at horizon
-    let floor_color = vec3<f32>(1.0, 1.0, 1.0);
+    let floor_color = vec3<f32>(FLOOR_R, FLOOR_G, FLOOR_B);
     let sky_color = vec3<f32>(SKY_R, SKY_G, SKY_B);
     let current_bg = mix(floor_color, sky_color, horizon_fade);
     
     // Grid color
-    let grid_color = vec3<f32>(0.7, 0.7, 0.7);
+    let grid_color = vec3<f32>(GRID_R, GRID_G, GRID_B);
     
     // Mix background with grid lines (grid also fades out at horizon)
     let final_color = mix(current_bg, grid_color, combined * grid_fade);

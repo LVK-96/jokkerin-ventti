@@ -5,7 +5,8 @@
  * for quaternion-based camera rotation. All quaternion math is done in Rust.
  */
 
-import { rotate_camera, sync_camera, get_camera_right_axis } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { rotate_camera, sync_camera, get_camera_right_axis, get_current_view_matrix, get_current_projection_matrix } from '../wasm/pkg/jokkerin_ventti_wasm';
+
 
 // Input state
 let isDragging = false;
@@ -135,4 +136,20 @@ function onPointerMove(e: PointerEvent): void {
 function onPointerUp(e: PointerEvent): void {
     isDragging = false;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+}
+
+/**
+ * Get view matrix as Float32Array (for handle-based API)
+ */
+export function getViewMatrix(): Float32Array {
+    const arr = get_current_view_matrix();
+    return new Float32Array(arr);
+}
+
+/**
+ * Get projection matrix as Float32Array (for handle-based API)
+ */
+export function getProjectionMatrix(): Float32Array {
+    const arr = get_current_projection_matrix();
+    return new Float32Array(arr);
 }
