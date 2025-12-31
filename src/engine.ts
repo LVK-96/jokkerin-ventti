@@ -10,6 +10,12 @@ export class WebGPUEngine {
     private onUpdate: UpdateCallback | null = null;
     private canvasId: string;
 
+    // FPS counter state
+    private fpsElement: HTMLElement | null = null;
+    private frameCount = 0;
+    private fpsLastUpdate = 0;
+    private showFps = true;
+
     constructor(canvasId: string) {
         this.canvasId = canvasId;
     }
@@ -40,10 +46,55 @@ export class WebGPUEngine {
                 resize_surface(this.canvasId);
             });
 
+            // Create FPS counter element
+            this.createFpsCounter();
+
             this.initialized = true;
         } catch (e) {
             console.error('WebGPU initialization failed:', e);
             throw e;
+        }
+    }
+
+    /**
+     * Create FPS counter DOM element
+     */
+    private createFpsCounter(): void {
+        this.fpsElement = document.createElement('div');
+        this.fpsElement.id = 'fps-counter';
+        this.fpsElement.style.cssText = `
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ffcc00;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: none;
+            outline: none;
+            box-shadow: none;
+            text-shadow: none;
+            -webkit-text-stroke: 0;
+            z-index: 9999;
+            pointer-events: none;
+        `;
+        this.fpsElement.textContent = '-- FPS';
+        document.body.appendChild(this.fpsElement);
+
+        if (!this.showFps) {
+            this.fpsElement.style.display = 'none';
+        }
+    }
+
+    /**
+     * Toggle FPS counter visibility
+     */
+    setFpsVisible(visible: boolean): void {
+        this.showFps = visible;
+        if (this.fpsElement) {
+            this.fpsElement.style.display = visible ? 'block' : 'none';
         }
     }
 
@@ -66,6 +117,8 @@ export class WebGPUEngine {
         }
 
         this.lastTime = performance.now();
+        this.fpsLastUpdate = this.lastTime;
+        this.frameCount = 0;
         this.loop(this.lastTime);
         log('Animation loop started');
     }
@@ -84,6 +137,19 @@ export class WebGPUEngine {
     private loop = (time: number): void => {
         const delta = time - this.lastTime;
         this.lastTime = time;
+
+        // Update FPS counter
+        this.frameCount++;
+        const fpsDelta = time - this.fpsLastUpdate;
+        if (fpsDelta >= 1000) {
+            const fps = Math.round((this.frameCount * 1000) / fpsDelta);
+            const avgFrameTime = (fpsDelta / this.frameCount).toFixed(1);
+            if (this.fpsElement) {
+                this.fpsElement.textContent = `${fps} FPS | ${avgFrameTime}ms`;
+            }
+            this.frameCount = 0;
+            this.fpsLastUpdate = time;
+        }
 
         try {
             // Update time uniform in Rust
