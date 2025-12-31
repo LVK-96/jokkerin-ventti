@@ -1,4 +1,4 @@
-import init, {
+import initWasm, {
     load_animation,
     // New handle-based API
     create_editor_session,
@@ -46,7 +46,7 @@ let engine: WebGPUEngine | null = null;
 // --- Initialization ---
 
 async function init() {
-    await init();
+    await initWasm();
     try {
         engine = new WebGPUEngine('gpu-canvas');
         await engine.init();

@@ -43,11 +43,59 @@ pub use glam::Vec3;
 #[cfg(target_arch = "wasm32")]
 pub use gpu::{
     get_current_projection_matrix, get_current_view_matrix, init_gpu, render_frame, resize_surface,
-    sync_camera, update_skeleton_from_playback, update_skeleton_from_session,
+    sync_camera,
 };
 
 pub use math::Mat4;
 pub use math::Mat4Extended;
+
+/// Update skeleton from a handle-based editor session
+/// Call this every frame before render_frame() when using the new handle-based API
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn update_skeleton_from_session(handle: u32) {
+    use crate::bone_hierarchy::RotationPose;
+    use crate::editor::{EditorHandle, with_session_ref};
+
+    let pose = with_session_ref(handle as EditorHandle, |session| {
+        session
+            .clip
+            .keyframes
+            .get(session.keyframe_index)
+            .map(|kf| kf.pose.clone())
+            .unwrap_or_else(RotationPose::bind_pose)
+    });
+
+    let mut pose = pose.unwrap_or_else(RotationPose::bind_pose);
+    pose = pose.apply_floor_constraint();
+    let skeleton = pose.to_skeleton();
+    let matrices = skeleton.compute_bone_matrices();
+
+    gpu::update_bone_uniforms(&matrices);
+}
+
+/// Update skeleton from the current animation playback state
+/// Call this every frame before render_frame() for non-editor mode
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn update_skeleton_from_playback() {
+    // Get playback state
+    let playback = crate::animation::PLAYBACK_STATE.with(|p| p.borrow().clone());
+
+    // Sample animation from library (pure function)
+    let mut pose = crate::animation::ANIMATION_LIBRARY.with(|lib| {
+        let library = lib.borrow();
+        crate::animation::sample_animation(&library, &playback)
+    });
+
+    // Apply floor constraint (keeps hips above floor)
+    pose = pose.apply_floor_constraint();
+
+    let skeleton = pose.to_skeleton();
+    let matrices = skeleton.compute_bone_matrices();
+
+    gpu::update_bone_uniforms(&matrices);
+}
 
 /// Log to browser console
 #[wasm_bindgen]

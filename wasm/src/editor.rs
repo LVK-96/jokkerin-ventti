@@ -1,6 +1,5 @@
 use crate::bone_hierarchy::{BoneId, RotationAnimationClip};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use wasm_bindgen::prelude::*;
 
@@ -20,26 +19,23 @@ pub struct EditorSession {
 }
 
 /// Global store for active editor sessions
-static SESSIONS: Mutex<Option<HashMap<EditorHandle, EditorSession>>> = Mutex::new(None);
+use std::cell::RefCell;
+thread_local! {
+    static SESSIONS: RefCell<HashMap<EditorHandle, EditorSession>> = RefCell::new(HashMap::new());
+}
 
 /// Counter for generating unique handles
 static NEXT_HANDLE: AtomicU32 = AtomicU32::new(1);
-
-/// Initialize the sessions HashMap if needed
-fn ensure_sessions_init() {
-    let mut guard = SESSIONS.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(HashMap::new());
-    }
-}
 
 /// Helper to access a session by handle, executing a closure with mutable access
 fn with_session<F, R>(handle: EditorHandle, f: F) -> Option<R>
 where
     F: FnOnce(&mut EditorSession) -> R,
 {
-    let mut guard = SESSIONS.lock().ok()?;
-    guard.as_mut()?.get_mut(&handle).map(f)
+    SESSIONS.with(|sessions| {
+        let mut map = sessions.borrow_mut();
+        map.get_mut(&handle).map(f)
+    })
 }
 
 /// Helper to access a session by handle with read-only access
@@ -47,8 +43,10 @@ pub fn with_session_ref<F, R>(handle: EditorHandle, f: F) -> Option<R>
 where
     F: FnOnce(&EditorSession) -> R,
 {
-    let guard = SESSIONS.lock().ok()?;
-    guard.as_ref()?.get(&handle).map(f)
+    SESSIONS.with(|sessions| {
+        let map = sessions.borrow();
+        map.get(&handle).map(f)
+    })
 }
 
 // =============================================================================
@@ -59,8 +57,6 @@ where
 /// Returns an opaque handle to use with other editor functions
 #[wasm_bindgen]
 pub fn create_editor_session(exercise_name: &str) -> EditorHandle {
-    ensure_sessions_init();
-
     let clip = crate::animation::ANIMATION_LIBRARY
         .with(|lib| lib.borrow().get_clip(exercise_name).cloned());
 
@@ -71,13 +67,11 @@ pub fn create_editor_session(exercise_name: &str) -> EditorHandle {
             keyframe_index: 0,
         };
 
-        if let Ok(mut guard) = SESSIONS.lock() {
-            if let Some(sessions) = guard.as_mut() {
-                sessions.insert(handle, session);
-                log::info!("Created editor session {} for: {}", handle, exercise_name);
-                return handle;
-            }
-        }
+        SESSIONS.with(|sessions| {
+            sessions.borrow_mut().insert(handle, session);
+        });
+        log::info!("Created editor session {} for: {}", handle, exercise_name);
+        return handle;
     } else {
         log::warn!("No animation loaded for exercise: {}", exercise_name);
     }
@@ -88,13 +82,11 @@ pub fn create_editor_session(exercise_name: &str) -> EditorHandle {
 /// Destroy an editor session and free its resources
 #[wasm_bindgen]
 pub fn destroy_editor_session(handle: EditorHandle) {
-    if let Ok(mut guard) = SESSIONS.lock() {
-        if let Some(sessions) = guard.as_mut() {
-            if sessions.remove(&handle).is_some() {
-                log::info!("Destroyed editor session {}", handle);
-            }
+    SESSIONS.with(|sessions| {
+        if sessions.borrow_mut().remove(&handle).is_some() {
+            log::info!("Destroyed editor session {}", handle);
         }
-    }
+    });
 }
 
 fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
@@ -255,8 +247,7 @@ pub fn get_bone_info(handle: EditorHandle, bone_index: usize) -> Option<JointInf
 
     with_session_ref(handle, |session| {
         let pose = &session.clip.keyframes.get(session.keyframe_index)?.pose;
-        let id =
-            unsafe { std::mem::transmute::<u8, crate::bone_hierarchy::BoneId>(bone_index as u8) };
+        let id = crate::bone_hierarchy::BoneId::ALL[bone_index];
         let rot = pose.local_rotations[bone_index];
         let (rx, ry, rz) = rot.to_euler(glam::EulerRot::XYZ);
         let pos = pose.get_position(id);
@@ -282,9 +273,7 @@ pub fn set_bone_rotation(handle: EditorHandle, bone_index: usize, rx: f32, ry: f
     with_session(handle, |session| {
         if session.keyframe_index < session.clip.keyframes.len() {
             let pose = &mut session.clip.keyframes[session.keyframe_index].pose;
-            let id = unsafe {
-                std::mem::transmute::<u8, crate::bone_hierarchy::BoneId>(bone_index as u8)
-            };
+            let id = crate::bone_hierarchy::BoneId::ALL[bone_index];
             let q = glam::Quat::from_euler(
                 glam::EulerRot::XYZ,
                 rx.to_radians(),

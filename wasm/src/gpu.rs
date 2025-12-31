@@ -8,7 +8,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
-use crate::bone_hierarchy::RotationPose;
 use crate::skeleton::{RENDER_BONE_COUNT, SkinnedVertex, generate_bind_pose_mesh};
 
 // Shared background/sky color
@@ -103,18 +102,18 @@ thread_local! {
 /// wasm_bindgen + pub async fn
 /// -> Generates a promies for JS
 #[wasm_bindgen]
-pub async fn init_gpu(canvas_id: String) {
+pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
     // Set up panic hook for better error messages in browser console
     console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Info).ok();
 
-    let window = web_sys::window().expect("No window");
-    let document = window.document().expect("No document");
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+    let document = window.document().ok_or_else(|| JsValue::from_str("No document"))?;
     let canvas = document
         .get_element_by_id(&canvas_id)
-        .expect("Canvas not found")
+        .ok_or_else(|| JsValue::from_str("Canvas not found"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()
-        .expect("Not a canvas");
+        .map_err(|_| JsValue::from_str("Not a canvas"))?;
 
     let (width, height) = get_canvas_size(&window, &canvas);
     canvas.set_width(width);
@@ -134,7 +133,7 @@ pub async fn init_gpu(canvas_id: String) {
     // Create surface from canvas
     let surface = instance
         .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-        .expect("Failed to create surface");
+        .map_err(|e| JsValue::from_str(&format!("Failed to create surface: {}", e)))?;
 
     // Request adapter
     let adapter = instance
@@ -144,10 +143,10 @@ pub async fn init_gpu(canvas_id: String) {
             force_fallback_adapter: false,
         })
         .await
-        .expect("Failed to find GPU adapter");
+        .map_err(|_| JsValue::from_str("Failed to find GPU adapter"))?;
 
     // Request device and queue
-    let (device, queue) = adapter
+    let (device, queue): (wgpu::Device, wgpu::Queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("Main Device"),
             required_features: wgpu::Features::empty(),
@@ -157,7 +156,7 @@ pub async fn init_gpu(canvas_id: String) {
             trace: wgpu::Trace::Off,
         })
         .await
-        .expect("Failed to create device");
+        .map_err(|e| JsValue::from_str(&format!("Failed to create device: {}", e)))?;
 
     // Configure surface
     let surface_caps = surface.get_capabilities(&adapter);
@@ -483,6 +482,7 @@ pub async fn init_gpu(canvas_id: String) {
     });
 
     log::info!("WebGPU initialized with skeleton pipeline!");
+    Ok(())
 }
 
 /// Resize the WebGPU surface when canvas size changes
@@ -602,67 +602,16 @@ pub fn get_current_projection_matrix() -> Vec<f32> {
     })
 }
 
-/// Update skeleton from a handle-based editor session
-/// Call this every frame before render_frame() when using the new handle-based API
-#[wasm_bindgen]
-pub fn update_skeleton_from_session(handle: u32) {
-    use crate::editor::{EditorHandle, with_session_ref};
-
-    let pose = with_session_ref(handle as EditorHandle, |session| {
-        session
-            .clip
-            .keyframes
-            .get(session.keyframe_index)
-            .map(|kf| kf.pose.clone())
-            .unwrap_or_else(RotationPose::bind_pose)
-    });
-
-    let mut pose = pose.unwrap_or_else(RotationPose::bind_pose);
-
-    // Update GPU buffers
+/// Update bone matrices uniform buffer
+/// Call this to push new skeleton pose to the GPU
+pub fn update_bone_uniforms(matrices: &[glam::Mat4]) {
     GPU_STATE.with(|s| {
         let mut state_ref = s.borrow_mut();
         if let Some(state) = state_ref.as_mut() {
-            pose = pose.apply_floor_constraint();
-            let skeleton = pose.to_skeleton();
-            let matrices = skeleton.compute_bone_matrices();
-
             state.queue.write_buffer(
                 &state.bone_uniform_buffer,
                 0,
-                bytemuck::cast_slice(&matrices),
-            );
-        }
-    });
-}
-
-/// Update skeleton from the current animation playback state
-/// Call this every frame before render_frame() for non-editor mode
-#[wasm_bindgen]
-pub fn update_skeleton_from_playback() {
-    // Get playback state
-    let playback = crate::animation::PLAYBACK_STATE.with(|p| p.borrow().clone());
-
-    // Sample animation from library (pure function)
-    let mut pose = crate::animation::ANIMATION_LIBRARY.with(|lib| {
-        let library = lib.borrow();
-        crate::animation::sample_animation(&library, &playback)
-    });
-
-    // Update GPU buffers
-    GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            // Apply floor constraint (keeps hips above floor)
-            pose = pose.apply_floor_constraint();
-
-            let skeleton = pose.to_skeleton();
-            let matrices = skeleton.compute_bone_matrices();
-
-            state.queue.write_buffer(
-                &state.bone_uniform_buffer,
-                0,
-                bytemuck::cast_slice(&matrices),
+                bytemuck::cast_slice(matrices),
             );
         }
     });
