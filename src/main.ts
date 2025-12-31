@@ -1,5 +1,6 @@
 import { Exercise, Workout } from './types';
-import { startEngine, set_exercise, load_animation } from './webgpu';
+import { set_exercise, load_animation, update_skeleton_from_playback } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { WebGPUEngine } from './engine';
 
 // Assets
 import workoutUrl from './assets/Workouts/jokkeri_ventti.json?url';
@@ -52,6 +53,9 @@ let state = STATE_NEW_SET;
 
 // UI element references
 let elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
+
+// WebGPU Engine
+let engine: WebGPUEngine | null = null;
 
 async function loadWorkout(): Promise<void> {
     const response = await fetch(WORKOUT_JSON_PATH);
@@ -116,7 +120,7 @@ export function stopAndResetWorkout(): void {
     workoutStarted = false;
     workoutDone = false;
     // Don't reset currentExercise so we stay on the same exercise
-    // currentExercise = 0; 
+    // currentExercise = 0;
     currentSet = 0;
     pauseTimer = 10;
     workoutTimer = 0;
@@ -434,7 +438,14 @@ async function init(): Promise<void> {
     await loadWorkout();
 
     // Initialize WebGPU + Wasm engine
-    await startEngine();
+    // Create and start engine
+    engine = new WebGPUEngine('gpu-canvas');
+    await engine.init();
+
+    engine.start(() => {
+        // Exercise Mode Loop
+        update_skeleton_from_playback();
+    });
 
     // Load keyframe animations for exercises
     for (const [name, animJson] of animationMap.entries()) {

@@ -1,6 +1,6 @@
 /**
  * Orbit Camera Controller
- * 
+ *
  * Thin input handler that forwards keyboard/mouse input to Rust/WASM
  * for quaternion-based camera rotation. All quaternion math is done in Rust.
  */

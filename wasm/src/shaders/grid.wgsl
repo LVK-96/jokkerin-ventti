@@ -57,12 +57,12 @@ const FLOOR_VERTICES: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
 fn vs_main(@builtin(vertex_index) vertex_idx: u32) -> VertexOutput {
     var out: VertexOutput;
     let world_pos = FLOOR_VERTICES[vertex_idx];
-    
+
     // Transform to clip space
     let view_pos = uniforms.view * vec4<f32>(world_pos, 1.0);
     out.clip_position = uniforms.projection * view_pos;
     out.world_pos = world_pos.xz;
-    
+
     return out;
 }
 
@@ -91,19 +91,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let grid_x = on_grid_line(in.world_pos.x, MINOR_LINE_THICKNESS);
     let grid_z = on_grid_line(in.world_pos.y, MINOR_LINE_THICKNESS);
     let grid_intensity = max(grid_x, grid_z);
-    
+
     // Thicker lines at every MAJOR_GRID_STEP units
     let major_x = on_grid_line(in.world_pos.x / MAJOR_GRID_STEP, MAJOR_LINE_THICKNESS);
     let major_z = on_grid_line(in.world_pos.y / MAJOR_GRID_STEP, MAJOR_LINE_THICKNESS);
     let major_intensity = max(major_x, major_z);
-    
+
     // Combine grids
     let combined = max(grid_intensity * MINOR_GRID_OPACITY, major_intensity * MAJOR_GRID_OPACITY);
-    
+
     // Distance-based fade to white
     let dist = length(in.world_pos);
     let fade = 1.0 - smoothstep(FADE_START, FADE_END, dist);
-    
+
     // Distance-based fade
     let world_dist = length(in.world_pos);
     let horizon_fade = smoothstep(FADE_START, FADE_END, world_dist);
@@ -113,12 +113,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let floor_color = vec3<f32>(FLOOR_R, FLOOR_G, FLOOR_B);
     let sky_color = vec3<f32>(SKY_R, SKY_G, SKY_B);
     let current_bg = mix(floor_color, sky_color, horizon_fade);
-    
+
     // Grid color
     let grid_color = vec3<f32>(GRID_R, GRID_G, GRID_B);
-    
+
     // Mix background with grid lines (grid also fades out at horizon)
     let final_color = mix(current_bg, grid_color, combined * grid_fade);
-    
+
     return vec4<f32>(final_color, 1.0);
 }

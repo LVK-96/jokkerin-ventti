@@ -1,8 +1,4 @@
 import init, {
-    init_gpu,
-    render_frame,
-    resize_surface,
-    advance_time,
     load_animation,
     // New handle-based API
     create_editor_session,
@@ -21,10 +17,11 @@ import init, {
     set_exercise,
     update_skeleton_from_session,
 } from "../../wasm/pkg/jokkerin_ventti_wasm";
-import { initCameraControls, updateCameraFromInput, setCameraEnabled, getViewMatrix, getProjectionMatrix } from '../camera';
+import { setCameraEnabled, getViewMatrix, getProjectionMatrix } from '../camera';
 import { animationMap } from '../animations';
 import { initHistory, saveUndoState, undo, redo, clearHistory } from './history';
 import { drawGizmo } from './overlay';
+import { WebGPUEngine } from '../engine';
 
 // --- State ---
 let currentExerciseName = '';
@@ -35,7 +32,6 @@ let selectedJoint: number | null = null;
 let hoveredJoint: number | null = null;
 let dragStartX = 0;
 let dragStartY = 0;
-let lastTime = 0;
 
 const JOINT_NAMES = [
     'Hips', 'Neck', 'Neck (Top)', 'Head',
@@ -45,13 +41,15 @@ const JOINT_NAMES = [
     'Right Thigh', 'Right Shin'
 ];
 
+let engine: WebGPUEngine | null = null;
+
 // --- Initialization ---
 
-async function initEditor() {
+async function init() {
     await init();
     try {
-        await init_gpu('gpu-canvas');
-        console.log('WebGPU initialized');
+        engine = new WebGPUEngine('gpu-canvas');
+        await engine.init();
 
         // Initialize history
         initHistory({
@@ -76,10 +74,8 @@ async function initEditor() {
             }
         });
 
-        // Initialize camera
         const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
         const overlayCanvas = document.getElementById('overlay-canvas') as HTMLCanvasElement;
-        initCameraControls(canvas);
         initOverlay(overlayCanvas);
 
         // Bind events
@@ -88,14 +84,29 @@ async function initEditor() {
         // Populate exercise selector
         populateExerciseSelect();
 
-        // Start loop
-        requestAnimationFrame(animate);
-
-        // Handle resize
-        window.addEventListener('resize', () => resize_surface('gpu-canvas'));
+        // Start loop via Engine
+        engine.start(onEngineUpdate);
 
     } catch (e) {
         console.error('Failed to init WebGPU:', e);
+    }
+}
+
+function onEngineUpdate(_delta: number) {
+    // Use handle-based skeleton update if handle is valid
+    if (editorHandle) {
+        update_skeleton_from_session(editorHandle);
+    }
+
+    drawOverlay();
+
+    if (selectedJoint !== null) {
+        updateJointUI(selectedJoint);
+    } else {
+        const ph = document.getElementById('joint-placeholder');
+        const ctrl = document.getElementById('joint-controls');
+        if (ph) ph.style.display = 'block';
+        if (ctrl) ctrl.style.display = 'none';
     }
 }
 
@@ -145,35 +156,6 @@ function loadExercise(name: string) {
     clearHistory();
 
     updateUI();
-}
-
-// --- Animation Loop ---
-
-function animate(time: number) {
-    const delta = time - lastTime;
-    lastTime = time;
-
-    advance_time(delta);
-    updateCameraFromInput();
-
-    // Use handle-based skeleton update if handle is valid
-    if (editorHandle) {
-        update_skeleton_from_session(editorHandle);
-    }
-
-    render_frame();
-    drawOverlay();
-
-    if (selectedJoint !== null) {
-        updateJointUI(selectedJoint);
-    } else {
-        const ph = document.getElementById('joint-placeholder');
-        const ctrl = document.getElementById('joint-controls');
-        if (ph) ph.style.display = 'block';
-        if (ctrl) ctrl.style.display = 'none';
-    }
-
-    requestAnimationFrame(animate);
 }
 
 // --- Interaction ---
@@ -538,4 +520,4 @@ function updateUI() {
 }
 
 // Start
-initEditor();
+init();

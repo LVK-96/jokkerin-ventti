@@ -10,7 +10,7 @@ describe('animationMap', () => {
         expect(animationMap.has('Jumping Jacks')).toBe(true);
         expect(animationMap.has('Burpees')).toBe(true);
     });
-    
+
     it('should have string values (JSON content)', () => {
         const jumpingJacks = animationMap.get('Jumping Jacks');
         expect(typeof jumpingJacks).toBe('string');

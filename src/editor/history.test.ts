@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { 
-  initHistory, 
-  saveUndoState, 
-  undo, 
-  redo, 
-  clearHistory, 
-  HistoryCallbacks 
+import {
+  initHistory,
+  saveUndoState,
+  undo,
+  redo,
+  clearHistory,
+  HistoryCallbacks
 } from './history';
 
 // 1. Mock the WASM functions
@@ -18,7 +18,7 @@ vi.mock('../../wasm/pkg/jokkerin_ventti_wasm', () => ({
 
 describe('History System', () => {
   let callbacks: HistoryCallbacks;
-  
+
   // Mocks for callbacks
   let mockGetPoseJson = vi.fn();
   let mockGetKeyframeIndex = vi.fn();
@@ -54,7 +54,7 @@ describe('History System', () => {
     // 2. Test that history starts empty
     undo();
     expect(mockLoadPose).not.toHaveBeenCalled();
-    
+
     redo();
     expect(mockLoadPose).not.toHaveBeenCalled();
   });
@@ -68,14 +68,14 @@ describe('History System', () => {
     mockGetPoseJson.mockReturnValue('{"state":2}');
 
     undo();
-    
+
     expect(mockLoadPose).toHaveBeenCalledWith('{"state":1}');
     expect(mockOnHistoryRestore).toHaveBeenCalled();
   });
 
   it('clears redo stack when saving state', () => {
     // 4. Test undo followed by saveUndoState clears redo stack
-    
+
     // Save State 1
     mockGetPoseJson.mockReturnValue('state1');
     saveUndoState();
@@ -89,7 +89,7 @@ describe('History System', () => {
 
     // Verify Redo works (State 2 should be there)
     // When we redo, we save current (State 1) to Undo, and restore State 2
-    mockGetPoseJson.mockReturnValue('state1'); 
+    mockGetPoseJson.mockReturnValue('state1');
     redo();
     expect(mockLoadPose).toHaveBeenCalledWith('state2');
 
@@ -114,7 +114,7 @@ describe('History System', () => {
     mockGetPoseJson.mockReturnValue('correct-json');
     mockGetKeyframeIndex.mockReturnValue(42);
     mockGetSelectedJoint.mockReturnValue(7);
-    
+
     saveUndoState();
 
     // Change everything

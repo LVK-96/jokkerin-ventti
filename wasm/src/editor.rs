@@ -20,7 +20,6 @@ pub struct EditorSession {
 }
 
 /// Global store for active editor sessions
-/// Using Mutex because static requires Sync; safe in single-threaded WASM
 static SESSIONS: Mutex<Option<HashMap<EditorHandle, EditorSession>>> = Mutex::new(None);
 
 /// Counter for generating unique handles
