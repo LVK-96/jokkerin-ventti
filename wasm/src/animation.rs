@@ -1,9 +1,6 @@
-//! Animation module - pure functional animation state and sampling
-//!
-//! Separates animation library (read-only clips) from playback state (current exercise/time).
-
-use crate::bone_hierarchy::{RotationAnimationClip, RotationPose};
+use crate::bone::{RotationAnimationClip, RotationPose};
 use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
 
 /// Animation library - loaded once, read-only during playback
 ///
@@ -80,7 +77,7 @@ impl PlaybackState {
     }
 }
 
-/// Sample animation - pure function
+/// Sample animation
 ///
 /// Given a library and playback state, return the current pose.
 /// Returns bind pose if exercise not found.
@@ -128,27 +125,14 @@ mod tests {
     }
 }
 
-// --- State Management ---
-// Moved from lib.rs/gpu.rs
-
-use std::cell::RefCell;
-use wasm_bindgen::prelude::*;
-
-thread_local! {
-    pub static ANIMATION_LIBRARY: RefCell<AnimationLibrary> = RefCell::new(AnimationLibrary::new());
-    pub static PLAYBACK_STATE: RefCell<PlaybackState> = RefCell::new(PlaybackState::default());
-}
-
 /// Set the current exercise for animation
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_exercise(name: String) {
-    // Update PlaybackState (reset time to 0)
-    PLAYBACK_STATE.with(|p| {
-        let mut state = p.borrow_mut();
-        *state = state.clone().set_exercise(name.clone());
+    crate::state::with_app_state_mut(|app| {
+        app.playback = app.playback.clone().set_exercise(name.clone());
+        log::info!("Exercise set to: {}", name);
     });
-
-    log::info!("Exercise set to: {}", name);
 }
 
 /// Helper for logging
@@ -160,6 +144,7 @@ extern "C" {
 
 /// Load an animation clip from JSON string
 /// Call this during startup for each exercise you want to animate
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn load_animation(name_override: String, json_data: String) -> Result<(), JsValue> {
     // Parse into a generic Value first to check the version
@@ -179,9 +164,9 @@ pub fn load_animation(name_override: String, json_data: String) -> Result<(), Js
         clip.name = name_override.clone();
         let name = clip.name.clone();
 
-        // Store in AnimationLibrary
-        ANIMATION_LIBRARY.with(|lib| {
-            lib.borrow_mut().add_clip(clip);
+        // Store in AnimationLibrary via AppState
+        crate::state::with_app_state_mut(|app| {
+            app.animation_library.add_clip(clip);
         });
 
         log::info!("Loaded animation (v2): {}", name);
@@ -193,13 +178,13 @@ pub fn load_animation(name_override: String, json_data: String) -> Result<(), Js
 }
 
 /// Advance simulation time (call each frame with delta time)
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn advance_time(delta_ms: f32) {
     let delta_secs = delta_ms / 1000.0;
 
     // Update playback state time (for animation sampling)
-    PLAYBACK_STATE.with(|p| {
-        let mut state = p.borrow_mut();
-        state.time += delta_secs;
+    crate::state::with_app_state_mut(|app| {
+        app.playback.time += delta_secs;
     });
 }

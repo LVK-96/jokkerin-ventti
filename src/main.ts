@@ -1,69 +1,43 @@
 import { Exercise, Workout } from './types';
 import { set_exercise, load_animation, update_skeleton_from_playback } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { WebGPUEngine } from './engine';
+import { animationMap } from './animations';
+import { AudioManager } from './audio-manager';
+import { UIController } from './ui-controller';
+import { WorkoutState, WorkoutPhase, createInitialState, tick, WorkoutEvent } from './workout-state';
 
 // Assets
 import workoutUrl from './assets/Workouts/jokkeri_ventti.json?url';
-import longBeepUrl from './assets/long_beep.mp3';
-import almostSoundUrl from './assets/almostSound.mp3';
-import shortBeepUrl from './assets/short_beep.mp3';
-import intermediateSoundUrl from './assets/intermediateSound.mp3';
 
-// Animation data
-import { animationMap } from './animations';
-
-// Workout configuration
+// Configuration
 const WORKOUT_JSON_PATH = workoutUrl;
 
 // State
 let exercises: Exercise[] = [];
 export let exerciseOrder: string[] = []; // Exercise names in workout order (for editor)
-let currentExercise = 0;
-let workoutStarted = false;
-let workoutDone = false;
+let state: WorkoutState = {
+    phase: WorkoutPhase.Finished,
+    exerciseIndex: 0,
+    setIndex: 0,
+    workoutTimer: 0,
+    pauseTimer: 0
+};
+
 let intervalId: number | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 
-let exerciseName = '';
-let pauseTimer = 10;
-let currentSet = 0;
-let workoutTimer = 0;
-let pauseState = true;
-
-// Audio elements
-const startSound = new Audio(longBeepUrl);
-const almostPauseSound = new Audio(almostSoundUrl);
-const almostStartSound = new Audio(almostSoundUrl);
-const pauseSound = new Audio(shortBeepUrl);
-const intermediateSound = new Audio(intermediateSoundUrl);
-
-// Intermediate sounds
-let intermBeeps: number[] = [];
-let intermBeepsIdx = -1;
-
-// Colors
-const COLOR_REST = '#ffe7cd';
-const COLOR_WORKOUT = '#d7ffce';
-
-// State-machine states
-const STATE_NEW_SET = 0;
-const STATE_WORKOUT = 1;
-const STATE_REST = 2;
-let state = STATE_NEW_SET;
-
-// UI element references
-let elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
-
-// WebGPU Engine
+// Subsystems
+const audio = new AudioManager();
+const ui = new UIController();
 let engine: WebGPUEngine | null = null;
 
 async function loadWorkout(): Promise<void> {
     const response = await fetch(WORKOUT_JSON_PATH);
     const workout: Workout = await response.json();
     exercises = workout.exercises;
-    exerciseName = exercises[0].name;
     // Populate exercise order for the keyframe editor
     exerciseOrder = exercises.map(e => e.name);
+    state = createInitialState(exercises);
 }
 
 async function requestWakeLock(): Promise<void> {
@@ -82,24 +56,52 @@ async function releaseWakeLock(): Promise<void> {
     }
 }
 
-/**
- * Attach the start button click handler.
- * Uses { once: true } so it auto-removes after clicking.
- * Must be called again when resetting the workout.
- */
-function attachStartButtonHandler(startButton: HTMLButtonElement): void {
-    startButton.addEventListener('click', () => {
-        startButton.hidden = true;
-        pauseSound.play();
+function handleEvents(events: WorkoutEvent[]) {
+    for (const event of events) {
+        switch (event.type) {
+            case 'play_sound':
+                audio.play(event.sound);
+                break;
+            case 'start_exercise':
+                set_exercise(event.exerciseName);
+                break;
+            case 'finished':
+                stopAndResetWorkout();
 
-        (document.getElementById('progress-bar-container') as HTMLElement).hidden = false;
-        (document.getElementById('progress-bar') as HTMLElement).hidden = false;
-        (document.getElementById('timer') as HTMLElement).hidden = false;
-        (document.getElementById('prevButton') as HTMLElement).hidden = false;
-        (document.getElementById('nextButton') as HTMLElement).hidden = false;
+                if (intervalId !== null) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+                }
 
-        startWorkout();
-    }, { once: true });
+                releaseWakeLock();
+                break;
+        }
+    }
+}
+
+function tickLoop() {
+    requestWakeLock();
+    const result = tick(state, exercises);
+    state = result.newState;
+    handleEvents(result.events);
+    ui.update(state, exercises);
+}
+
+function startWorkout() {
+    // Reset state to initial ready state
+    state = createInitialState(exercises);
+
+    // Initialize animation immediately
+    if (exercises.length > 0) {
+        set_exercise(exercises[state.exerciseIndex].name);
+    }
+
+    ui.showWorkoutScreen();
+    ui.update(state, exercises);
+
+    // Start loop
+    if (intervalId !== null) clearInterval(intervalId);
+    intervalId = window.setInterval(tickLoop, 1000);
 }
 
 /**
@@ -107,256 +109,21 @@ function attachStartButtonHandler(startButton: HTMLButtonElement): void {
  * Called when entering editor mode to ensure clean slate.
  */
 export function stopAndResetWorkout(): void {
-    // Stop the interval timer
     if (intervalId !== null) {
         clearInterval(intervalId);
         intervalId = null;
     }
 
-    // Release wake lock
     releaseWakeLock();
 
-    // Reset workout state
-    workoutStarted = false;
-    workoutDone = false;
-    // Don't reset currentExercise so we stay on the same exercise
-    // currentExercise = 0;
-    currentSet = 0;
-    pauseTimer = 10;
-    workoutTimer = 0;
-    pauseState = true;
-    state = STATE_NEW_SET;
+    // Reset state
+    state = createInitialState(exercises);
 
-    // Reset UI to initial state
-    const startButton = document.getElementById('startButton') as HTMLButtonElement;
-    const progressBarContainer = document.getElementById('progress-bar-container') as HTMLElement;
-    const progressBar = document.getElementById('progress-bar') as HTMLElement;
-    const timerEl = document.getElementById('timer') as HTMLElement;
-    const prevButton = document.getElementById('prevButton') as HTMLElement;
-    const nextButton = document.getElementById('nextButton') as HTMLElement;
-    const exerciseCountEl = document.getElementById('exercise-count') as HTMLElement;
-    const exerciseNameEl = document.getElementById('exercise-name') as HTMLElement;
-    const setCountEl = document.getElementById('set-count') as HTMLElement;
-
-    if (startButton) {
-        startButton.hidden = false;
-        // Re-attach click handler (the { once: true } removed it after first click)
-        attachStartButtonHandler(startButton);
-    }
-    if (progressBarContainer) progressBarContainer.hidden = true;
-    if (progressBar) progressBar.hidden = true;
-    if (timerEl) timerEl.hidden = true;
-    if (prevButton) prevButton.hidden = true;
-    if (nextButton) nextButton.hidden = true;
-    if (exerciseCountEl) exerciseCountEl.innerText = '';
-    if (exerciseNameEl && exercises.length > 0) exerciseNameEl.innerText = exercises[currentExercise].name;
-    if (setCountEl) setCountEl.innerText = '';
-
-    // Reset background color
-    document.body.style.backgroundColor = '#ffffff';
+    // Reset UI
+    ui.reset();
+    ui.attachStartHandler(startWorkout);
 
     console.log('Workout stopped and reset');
-}
-
-function updateUI(): void {
-    if (workoutDone || currentExercise >= exercises.length) {
-        return;
-    }
-
-    const progressBar = document.getElementById('progress-bar') as HTMLElement;
-    let timerText = '';
-
-    if (!pauseState) {
-        timerText = `${workoutTimer}`;
-        const totalTime = exercises[currentExercise].workoutTime;
-        const progressPercentage = ((totalTime - workoutTimer) / totalTime) * 100;
-        progressBar.style.width = `${progressPercentage}%`;
-        progressBar.style.backgroundColor = '#4caf50';
-    } else {
-        timerText = `${pauseTimer}`;
-        const totalTime = exercises[currentExercise].pauseTime;
-        const progressPercentage = (pauseTimer / totalTime) * 100;
-        progressBar.style.width = `${progressPercentage}%`;
-        progressBar.style.backgroundColor = '#ff9800';
-    }
-
-    const exerciseCountEl = document.getElementById('exercise-count') as HTMLElement;
-    const exerciseNameEl = document.getElementById('exercise-name') as HTMLElement;
-    const setCountEl = document.getElementById('set-count') as HTMLElement;
-    const timerEl = document.getElementById('timer') as HTMLElement;
-
-    // Update text: Initial start phase
-    if (currentSet === 0) {
-        exerciseCountEl.innerText = 'Next';
-        exerciseNameEl.innerText = exercises[currentExercise].name;
-    }
-    // Update text: Last set pause
-    else if (pauseState && currentSet === exercises[currentExercise].setCount && currentExercise < exercises.length - 1) {
-        exerciseCountEl.innerText = 'Next';
-        exerciseNameEl.innerText = exercises[currentExercise + 1].name;
-    }
-    // Update text: Normal
-    else {
-        exerciseCountEl.innerText = `Exercise ${currentExercise + 1} of ${exercises.length}`;
-        exerciseNameEl.innerText = exerciseName;
-    }
-
-    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
-    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
-    if (prevButton) prevButton.disabled = currentExercise <= 0;
-    if (nextButton) nextButton.disabled = currentExercise >= exercises.length - 1;
-
-    setCountEl.innerText = `Set ${currentSet} of ${exercises[currentExercise].setCount}`;
-    timerEl.innerText = timerText;
-}
-
-function finished(): void {
-    releaseWakeLock();
-    if (intervalId !== null) {
-        clearInterval(intervalId);
-    }
-
-    const exerciseCountEl = document.getElementById('exercise-count') as HTMLElement;
-    const exerciseNameEl = document.getElementById('exercise-name') as HTMLElement;
-    const timerEl = document.getElementById('timer') as HTMLElement;
-    const setCountEl = document.getElementById('set-count') as HTMLElement;
-
-    exerciseCountEl.innerText = `Exercise ${currentExercise} of ${exercises.length}`;
-    exerciseNameEl.innerText = 'Workout Done';
-    timerEl.innerText = '';
-    setCountEl.innerText = '';
-
-    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
-    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
-    if (prevButton) {
-        prevButton.disabled = true;
-        prevButton.hidden = true;
-    }
-    if (nextButton) {
-        nextButton.disabled = true;
-        nextButton.hidden = true;
-    }
-    workoutStarted = false;
-}
-
-function nextExercise(): void {
-    currentSet = 1;
-    currentExercise++;
-
-    if (currentExercise >= exercises.length) {
-        currentExercise = exercises.length;
-        finished();
-        return;
-    }
-
-    workoutTimer = exercises[currentExercise].workoutTime;
-    pauseTimer = exercises[currentExercise].pauseTime;
-    pauseState = false;
-
-    // Update stickman animation for current exercise
-    set_exercise(exercises[currentExercise].name);
-
-    updateUI();
-}
-
-function updateSound(): void {
-    if (state === STATE_NEW_SET) {
-        if (!pauseState && workoutTimer === exercises[currentExercise].workoutTime) {
-            startSound.play();
-        }
-
-        intermBeepsIdx = -1;
-        const beeps = exercises[currentExercise].intermediateBeeps;
-
-        if (beeps !== undefined) {
-            intermBeeps = [...beeps].sort((a, b) => a - b);
-            intermBeepsIdx = intermBeeps.length - 1;
-        }
-    } else if (state === STATE_WORKOUT) {
-        if (workoutTimer === 0) {
-            pauseSound.play();
-        } else if (workoutTimer <= 3 && workoutTimer > 0) {
-            almostPauseSound.play();
-        }
-
-        if (intermBeepsIdx >= 0 && workoutTimer <= intermBeeps[intermBeepsIdx]) {
-            intermediateSound.play();
-            intermBeepsIdx--;
-        }
-    } else if (state === STATE_REST) {
-        if (pauseTimer <= 3 && pauseTimer > 0) {
-            almostStartSound.play();
-        }
-    }
-}
-
-function updateColors(): void {
-    if (state === STATE_NEW_SET) {
-        document.body.style.backgroundColor = COLOR_WORKOUT;
-    } else if (state === STATE_REST) {
-        document.body.style.backgroundColor = COLOR_REST;
-    } else if (state === STATE_WORKOUT) {
-        document.body.style.backgroundColor = workoutTimer > 0 ? COLOR_WORKOUT : COLOR_REST;
-    }
-}
-
-function statemachine(): void {
-    if (workoutTimer > 0) {
-        pauseState = false;
-        workoutTimer--;
-        state = STATE_WORKOUT;
-    } else if (pauseTimer - 1 > 0 && currentExercise < exercises.length - 1) {
-        pauseState = true;
-        pauseTimer--;
-        state = STATE_REST;
-    } else {
-        currentSet++;
-        if (currentSet > exercises[currentExercise].setCount) {
-            nextExercise();
-        } else {
-            workoutTimer = exercises[currentExercise].workoutTime;
-            pauseTimer = exercises[currentExercise].pauseTime;
-        }
-
-        if (currentExercise < exercises.length) {
-            exerciseName = exercises[currentExercise].name;
-        }
-        pauseState = false;
-        state = STATE_NEW_SET;
-    }
-
-    updateSound();
-    updateUI();
-    updateColors();
-}
-
-function storeElementsWithText(): void {
-    elementsWithText = Array.from(document.querySelectorAll('*'))
-        .filter((element): element is HTMLElement => {
-            return element instanceof HTMLElement && element.textContent?.trim().length !== 0;
-        })
-        .map((element) => {
-            const computedStyle = window.getComputedStyle(element);
-            const originalSize = parseFloat(computedStyle.getPropertyValue('font-size'));
-            return { element, originalSize };
-        });
-}
-
-function resetElementsWithText(): void {
-    elementsWithText = [];
-}
-
-function updateTextSizes(percentage: number): void {
-    elementsWithText.forEach(({ element, originalSize }) => {
-        const newSize = originalSize * (1 + percentage / 100);
-        element.style.fontSize = newSize + 'px';
-    });
-}
-
-function updateTextSize(): void {
-    const slider = document.getElementById('textSizeSlider') as HTMLInputElement;
-    const sliderValue = parseInt(slider.value);
-    updateTextSizes(sliderValue);
 }
 
 /**
@@ -368,82 +135,46 @@ function skipToExercise(index: number): void {
         return;
     }
 
-    currentExercise = index;
-    currentSet = 1;
-    workoutTimer = exercises[currentExercise].workoutTime;
-    pauseTimer = exercises[currentExercise].pauseTime;
-    pauseState = false;
-    exerciseName = exercises[currentExercise].name;
+    // Manual state transition
+    state = {
+        phase: WorkoutPhase.Workout,
+        exerciseIndex: index,
+        setIndex: 1,
+        workoutTimer: exercises[index].workoutTime,
+        pauseTimer: exercises[index].pauseTime
+    };
 
-    // Update stickman animation for current exercise
-    set_exercise(exercises[currentExercise].name);
-    console.log(`Skipped to exercise ${index + 1}: ${exerciseName}`);
+    set_exercise(exercises[index].name);
+    console.log(`Skipped to exercise ${index + 1}: ${exercises[index].name}`);
 
-    updateUI();
+    ui.update(state, exercises);
 }
 
-/**
- * Skip to next exercise
- */
 function skipNextExercise(): void {
-    if (currentExercise < exercises.length - 1) {
-        skipToExercise(currentExercise + 1);
+    if (state.exerciseIndex < exercises.length - 1) {
+        skipToExercise(state.exerciseIndex + 1);
     }
 }
 
-/**
- * Skip to previous exercise
- */
 function skipPrevExercise(): void {
-    if (currentExercise > 0) {
-        skipToExercise(currentExercise - 1);
+    if (state.exerciseIndex > 0) {
+        skipToExercise(state.exerciseIndex - 1);
     }
 }
 
-// Keyboard shortcuts for exercise navigation (n/p keys only - arrows used for camera)
-document.addEventListener('keydown', (event) => {
-    if (!workoutStarted) return;
-    // Skip to next exercise with 'n'
-    if (event.key === 'n' || event.key === 'N') {
-        skipNextExercise();
-    }
-    // Skip to previous exercise with 'p'
-    if (event.key === 'p' || event.key === 'P') {
-        skipPrevExercise();
-    }
-});
+// Global hook for the slider
+(window as unknown as { updateTextSize: () => void }).updateTextSize = () => {
+    ui.updateTextSize();
+};
 
-function startWorkout(): void {
-    workoutStarted = true;
-    requestWakeLock();
-    updateUI();
-
-    updateTextSizes(0);
-    resetElementsWithText();
-    storeElementsWithText();
-    updateTextSize();
-
-    // Start the first exercise animation
-    set_exercise(exercises[currentExercise].name);
-
-    workoutDone = false;
-    intervalId = window.setInterval(() => {
-        requestWakeLock();
-        statemachine();
-    }, 1000);
-}
-
-// Initialize
 async function init(): Promise<void> {
     await loadWorkout();
 
     // Initialize WebGPU + Wasm engine
-    // Create and start engine
     engine = new WebGPUEngine('gpu-canvas');
     await engine.init();
 
     engine.start(() => {
-        // Exercise Mode Loop
         update_skeleton_from_playback();
     });
 
@@ -452,33 +183,35 @@ async function init(): Promise<void> {
         load_animation(name, animJson);
     }
 
+    // Initialize UI handlers
+    ui.attachStartHandler(startWorkout);
+    ui.attachNavigationHandlers(
+        () => skipPrevExercise(),
+        () => skipNextExercise()
+    );
 
-    resetElementsWithText();
-    storeElementsWithText();
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (event) => {
+        // Only if workout is started (i.e. start button hidden)
+        if (!ui.isStartButtonHidden()) return;
 
-    const startButton = document.getElementById('startButton') as HTMLButtonElement;
-    attachStartButtonHandler(startButton);
+        if (event.key === 'n' || event.key === 'N') {
+            skipNextExercise();
+        }
+        if (event.key === 'p' || event.key === 'P') {
+            skipPrevExercise();
+        }
+    });
 
-    const prevButton = document.getElementById('prevButton') as HTMLButtonElement;
-    const nextButton = document.getElementById('nextButton') as HTMLButtonElement;
-    if (prevButton) {
-        prevButton.addEventListener('click', () => skipPrevExercise());
-    }
-    if (nextButton) {
-        nextButton.addEventListener('click', () => skipNextExercise());
-    }
-
+    // Toggle slider visibility on click (logic from original main.ts)
+    // "document.addEventListener('mouseup', ...)"
+    // Using a simpler approach if possible, but sticking to original logic
     let startPressed = false;
     document.addEventListener('mouseup', () => {
-        if (startPressed || !startButton.hidden) return;
+        if (startPressed || !ui.isStartButtonHidden()) return;
         startPressed = true;
-
-        const slider = document.getElementById('textSizeSlider') as HTMLElement;
-        slider.hidden = !slider.hidden;
+        ui.toggleTextSizeSlider();
     });
 }
-
-// Expose updateTextSize globally for the inline handler
-(window as unknown as { updateTextSize: typeof updateTextSize }).updateTextSize = updateTextSize;
 
 init();

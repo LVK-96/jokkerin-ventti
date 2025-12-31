@@ -1,6 +1,6 @@
-//! Camera module
 use glam::{Mat4, Quat, Vec3};
-use std::cell::Cell;
+
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// Elevation limits as dot product of camera direction with world up
@@ -164,18 +164,11 @@ mod tests {
     }
 }
 
-thread_local! {
-    pub static CAMERA_STATE: Cell<Camera> = const { Cell::new(Camera {
-        // Default orientation looking z-forward, will be overwritten by default() logic via new() or initial sync
-        orientation: Quat::from_xyzw(0.0, 0.12, 0.0, 0.99), // Approximate
-        distance: 4.0
-    }) };
-}
-
 /// Update camera from spherical coordinates (orbit camera)
 /// azimuth: horizontal angle in radians (0 = front, PI/2 = right side)
 /// elevation: vertical angle in radians (0 = level, PI/2 = top-down)
 /// distance: distance from target point
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
     // Convert spherical to quaternion
@@ -187,7 +180,10 @@ pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
         orientation,
         distance,
     };
-    CAMERA_STATE.set(camera);
+
+    crate::state::with_app_state_mut(|app| {
+        app.camera = camera;
+    });
 }
 
 /// Apply a rotation to the camera around a world-space axis
@@ -198,17 +194,19 @@ pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
 /// # Arguments
 /// * `axis_x, axis_y, axis_z` - World-space axis to rotate around (should be normalized)
 /// * `angle` - Rotation angle in radians
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn rotate_camera(axis_x: f32, axis_y: f32, axis_z: f32, angle: f32) {
-    let mut camera = CAMERA_STATE.get();
-    let axis = Vec3::new(axis_x, axis_y, axis_z);
-    camera = camera.with_rotation(axis, angle);
-    CAMERA_STATE.set(camera);
+    crate::state::with_app_state_mut(|app| {
+        let axis = Vec3::new(axis_x, axis_y, axis_z);
+        app.camera = app.camera.with_rotation(axis, angle);
+    });
 }
 
 /// Get the camera's right axis (for vertical input rotation)
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_camera_right_axis() -> Vec<f32> {
-    let camera = CAMERA_STATE.get();
-    camera.right_axis().to_array().to_vec()
+    crate::state::with_app_state(|app| app.camera.right_axis().to_array().to_vec())
+        .unwrap_or_else(|| vec![1.0, 0.0, 0.0])
 }

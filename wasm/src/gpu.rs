@@ -1,9 +1,4 @@
-//! WebGPU rendering module using wgpu
-//!
-//! GPU init, shader compilation and skeleton rendering
-
 use static_assertions::const_assert_eq;
-use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
@@ -17,8 +12,6 @@ const SKY_COLOR: wgpu::Color = wgpu::Color {
     b: 1.0,
     a: 1.0,
 };
-
-// GPU_STATE moved to lib.rs
 
 /// WGSL Uniform struct
 #[repr(C)]
@@ -58,7 +51,6 @@ pub struct GpuContext {
     pub bone_uniform_buffer: wgpu::Buffer,
     pub uniform_buffer: wgpu::Buffer,
     // Depth texture
-    #[allow(dead_code)]
     pub depth_texture: wgpu::Texture,
     pub depth_view: wgpu::TextureView,
     // Bind groups
@@ -67,9 +59,6 @@ pub struct GpuContext {
     // Render state
     pub uniforms: Uniforms,
     pub vertex_count: u32,
-    // Camera state (quaternion-based orbit camera)
-    // Removed legacy fields: camera_orientation, camera_distance
-    // Use crate::CAMERA_STATE instead
 }
 
 /// Shader sources
@@ -86,18 +75,6 @@ fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement
     )
 }
 
-// GPU_STATE is only available when compiling for wasm32 (browser)
-// On native targets, we use a stub type for compilation
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    pub static GPU_STATE: RefCell<Option<GpuContext>> = const { RefCell::new(None) };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-thread_local! {
-    pub static GPU_STATE: RefCell<Option<()>> = const { RefCell::new(None) };
-}
-
 /// Initialize WebGPU context from a canvas element
 /// wasm_bindgen + pub async fn
 /// -> Generates a promies for JS
@@ -108,7 +85,9 @@ pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
     console_log::init_with_level(log::Level::Info).ok();
 
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-    let document = window.document().ok_or_else(|| JsValue::from_str("No document"))?;
+    let document = window
+        .document()
+        .ok_or_else(|| JsValue::from_str("No document"))?;
     let canvas = document
         .get_element_by_id(&canvas_id)
         .ok_or_else(|| JsValue::from_str("Canvas not found"))?
@@ -475,11 +454,10 @@ pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
         bone_bind_group,
         uniforms,
         vertex_count,
-        // Camera state - legacy init removed
     };
-    GPU_STATE.with(|s| {
-        *s.borrow_mut() = Some(state);
-    });
+
+    // Initialize centralized AppState with GPU context
+    crate::state::initialize_app_state(state);
 
     log::info!("WebGPU initialized with skeleton pipeline!");
     Ok(())
@@ -501,51 +479,49 @@ pub fn resize_surface(canvas_id: String) {
     canvas.set_width(width);
     canvas.set_height(height);
 
-    GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            // Update surface configuration
-            state.config.width = width;
-            state.config.height = height;
-            state.surface.configure(&state.device, &state.config);
+    crate::state::with_app_state_mut(|app| {
+        let gpu = &mut app.gpu;
+        // Update surface configuration
+        gpu.config.width = width;
+        gpu.config.height = height;
+        gpu.surface.configure(&gpu.device, &gpu.config);
 
-            // Recreate depth texture with new dimensions
-            let depth_texture = state.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("depth_texture"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24Plus,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
-            state.depth_texture = depth_texture;
-            state.depth_view = state
-                .depth_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+        // Recreate depth texture with new dimensions
+        let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth_texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24Plus,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        gpu.depth_texture = depth_texture;
+        gpu.depth_view = gpu
+            .depth_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-            // Update aspect ratio and projection matrix
-            let aspect = width as f32 / height as f32;
-            state.uniforms.aspect = aspect;
-            state.uniforms.screen_height = height as f32;
-            state.uniforms.projection =
-                glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 100.0)
-                    .to_cols_array_2d();
+        // Update aspect ratio and projection matrix
+        let aspect = width as f32 / height as f32;
+        gpu.uniforms.aspect = aspect;
+        gpu.uniforms.screen_height = height as f32;
+        gpu.uniforms.projection =
+            glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 100.0)
+                .to_cols_array_2d();
 
-            // Write updated uniforms to GPU
-            state.queue.write_buffer(
-                &state.uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[state.uniforms]),
-            );
+        // Write updated uniforms to GPU
+        gpu.queue.write_buffer(
+            &gpu.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[gpu.uniforms]),
+        );
 
-            log::info!("Resized to {}x{}", width, height);
-        }
+        log::info!("Resized to {}x{}", width, height);
     });
 }
 
@@ -554,20 +530,14 @@ pub fn resize_surface(canvas_id: String) {
 /// Call this after rotate_camera() to push the updated view matrix to the GPU.
 #[wasm_bindgen]
 pub fn sync_camera() {
-    GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            let camera = crate::camera::CAMERA_STATE.get();
-            let view = camera.view_matrix();
-
-            state.uniforms.view = view.to_cols_array_2d();
-
-            state.queue.write_buffer(
-                &state.uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[state.uniforms]),
-            );
-        }
+    crate::state::with_app_state_mut(|app| {
+        let view = app.camera.view_matrix();
+        app.gpu.uniforms.view = view.to_cols_array_2d();
+        app.gpu.queue.write_buffer(
+            &app.gpu.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[app.gpu.uniforms]),
+        );
     });
 }
 
@@ -575,114 +545,105 @@ pub fn sync_camera() {
 /// Used by TypeScript for gizmo rendering
 #[wasm_bindgen]
 pub fn get_current_view_matrix() -> Vec<f32> {
-    GPU_STATE.with(|s| {
-        let state_ref = s.borrow();
-        if let Some(state) = state_ref.as_ref() {
-            // Flatten the 4x4 view matrix to a Vec<f32>
-            let view = &state.uniforms.view;
-            view.iter().flat_map(|row| row.iter().copied()).collect()
-        } else {
-            vec![0.0; 16]
-        }
+    crate::state::with_app_state(|app| {
+        app.gpu
+            .uniforms
+            .view
+            .iter()
+            .flat_map(|row| row.iter().copied())
+            .collect()
     })
+    .unwrap_or_else(|| vec![0.0; 16])
 }
 
 /// Get the current projection matrix
 /// Used by TypeScript for handle-based joint positioning
 #[wasm_bindgen]
 pub fn get_current_projection_matrix() -> Vec<f32> {
-    GPU_STATE.with(|s| {
-        let state_ref = s.borrow();
-        if let Some(state) = state_ref.as_ref() {
-            let proj = &state.uniforms.projection;
-            proj.iter().flat_map(|row| row.iter().copied()).collect()
-        } else {
-            vec![0.0; 16]
-        }
+    crate::state::with_app_state(|app| {
+        app.gpu
+            .uniforms
+            .projection
+            .iter()
+            .flat_map(|row| row.iter().copied())
+            .collect()
     })
+    .unwrap_or_else(|| vec![0.0; 16])
 }
 
 /// Update bone matrices uniform buffer
 /// Call this to push new skeleton pose to the GPU
 pub fn update_bone_uniforms(matrices: &[glam::Mat4]) {
-    GPU_STATE.with(|s| {
-        let mut state_ref = s.borrow_mut();
-        if let Some(state) = state_ref.as_mut() {
-            state.queue.write_buffer(
-                &state.bone_uniform_buffer,
-                0,
-                bytemuck::cast_slice(matrices),
-            );
-        }
+    crate::state::with_app_state_mut(|app| {
+        app.gpu.queue.write_buffer(
+            &app.gpu.bone_uniform_buffer,
+            0,
+            bytemuck::cast_slice(matrices),
+        );
     });
 }
 
 /// Render a frame
 #[wasm_bindgen]
 pub fn render_frame() {
-    GPU_STATE.with(|s| {
-        let state_ref = s.borrow();
-        if let Some(state) = state_ref.as_ref() {
-            let output = match state.surface.get_current_texture() {
-                Ok(t) => t,
-                Err(_) => return, // Surface lost
-            };
+    crate::state::with_app_state(|app| {
+        let gpu = &app.gpu;
+        let output = match gpu.surface.get_current_texture() {
+            Ok(t) => t,
+            Err(_) => return, // Surface lost
+        };
 
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let mut encoder =
-                state
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Render Encoder"),
-                    });
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Skeleton Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(SKY_COLOR),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &state.depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Skeleton Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(SKY_COLOR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &gpu.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
                     }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
 
-                // Draw background grid
-                render_pass.set_pipeline(&state.grid_pipeline);
-                // Grid uses uniform bind group at index 0
-                render_pass.set_bind_group(0, &state.uniform_bind_group, &[]);
-                render_pass.draw(0..6, 0..1);
+            // Draw background grid
+            render_pass.set_pipeline(&gpu.grid_pipeline);
+            // Grid uses uniform bind group at index 0
+            render_pass.set_bind_group(0, &gpu.uniform_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
 
-                // Draw skinned mesh
-                render_pass.set_pipeline(&state.skeleton_pipeline);
-                render_pass.set_bind_group(0, &state.uniform_bind_group, &[]);
-                render_pass.set_bind_group(1, &state.bone_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, state.vertex_buffer.slice(..));
+            // Draw skinned mesh
+            render_pass.set_pipeline(&gpu.skeleton_pipeline);
+            render_pass.set_bind_group(0, &gpu.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &gpu.bone_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, gpu.vertex_buffer.slice(..));
 
-                render_pass.draw(0..state.vertex_count, 0..1);
-            }
-
-            state.queue.submit(std::iter::once(encoder.finish()));
-            output.present();
+            render_pass.draw(0..gpu.vertex_count, 0..1);
         }
+
+        gpu.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
     });
 }
-
-// Editor functions moved to editor.rs

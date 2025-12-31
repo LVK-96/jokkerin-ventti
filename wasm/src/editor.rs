@@ -1,92 +1,53 @@
-use crate::bone_hierarchy::{BoneId, RotationAnimationClip};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use crate::bone::BoneId;
 use wasm_bindgen::prelude::*;
 
-// =============================================================================
-// HANDLE PATTERN INFRASTRUCTURE
-// =============================================================================
-
-/// Opaque handle to an editor session (passed to/from JavaScript)
-pub type EditorHandle = u32;
-
-/// An active editing session with a clip
-pub struct EditorSession {
-    /// The animation clip being edited (cloned from library)
-    pub clip: RotationAnimationClip,
-    /// Current keyframe index being edited
-    pub keyframe_index: usize,
-}
-
-/// Global store for active editor sessions
-use std::cell::RefCell;
-thread_local! {
-    static SESSIONS: RefCell<HashMap<EditorHandle, EditorSession>> = RefCell::new(HashMap::new());
-}
-
-/// Counter for generating unique handles
-static NEXT_HANDLE: AtomicU32 = AtomicU32::new(1);
-
-/// Helper to access a session by handle, executing a closure with mutable access
-fn with_session<F, R>(handle: EditorHandle, f: F) -> Option<R>
+/// Helper to access the current session with mutable access
+fn with_session_mut<F, R>(f: F) -> Option<R>
 where
-    F: FnOnce(&mut EditorSession) -> R,
+    F: FnOnce(&mut crate::state::EditorSession) -> R,
 {
-    SESSIONS.with(|sessions| {
-        let mut map = sessions.borrow_mut();
-        map.get_mut(&handle).map(f)
-    })
+    crate::state::with_app_state_mut(|app| app.editor_mut().map(f)).flatten()
 }
 
-/// Helper to access a session by handle with read-only access
-pub fn with_session_ref<F, R>(handle: EditorHandle, f: F) -> Option<R>
+/// Helper to access the current session with read-only access
+fn with_session<F, R>(f: F) -> Option<R>
 where
-    F: FnOnce(&EditorSession) -> R,
+    F: FnOnce(&crate::state::EditorSession) -> R,
 {
-    SESSIONS.with(|sessions| {
-        let map = sessions.borrow();
-        map.get(&handle).map(f)
-    })
+    crate::state::with_app_state(|app| app.editor().map(f)).flatten()
 }
 
-// =============================================================================
-// LIFECYCLE FUNCTIONS
-// =============================================================================
-
-/// Create a new editor session for the given exercise
-/// Returns an opaque handle to use with other editor functions
+/// Start editing an animation clip for the given exercise
 #[wasm_bindgen]
-pub fn create_editor_session(exercise_name: &str) -> EditorHandle {
-    let clip = crate::animation::ANIMATION_LIBRARY
-        .with(|lib| lib.borrow().get_clip(exercise_name).cloned());
+pub fn start_editing(exercise_name: &str) -> bool {
+    let name = exercise_name.to_string();
 
-    if let Some(clip) = clip {
-        let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
-        let session = EditorSession {
-            clip,
-            keyframe_index: 0,
-        };
-
-        SESSIONS.with(|sessions| {
-            sessions.borrow_mut().insert(handle, session);
-        });
-        log::info!("Created editor session {} for: {}", handle, exercise_name);
-        return handle;
-    } else {
-        log::warn!("No animation loaded for exercise: {}", exercise_name);
-    }
-
-    0 // Return 0 as invalid handle
-}
-
-/// Destroy an editor session and free its resources
-#[wasm_bindgen]
-pub fn destroy_editor_session(handle: EditorHandle) {
-    SESSIONS.with(|sessions| {
-        if sessions.borrow_mut().remove(&handle).is_some() {
-            log::info!("Destroyed editor session {}", handle);
+    crate::state::with_app_state_mut(|app| {
+        if let Some(clip) = app.animation_library.get_clip(&name).cloned() {
+            app.start_editing(clip);
+            log::info!("Started editing: {}", name);
+            true
+        } else {
+            log::warn!("No animation loaded for exercise: {}", name);
+            false
         }
+    })
+    .unwrap_or(false)
+}
+
+/// Stop editing and clear the current session
+#[wasm_bindgen]
+pub fn stop_editing() {
+    crate::state::with_app_state_mut(|app| {
+        app.stop_editing();
+        log::info!("Stopped editing");
     });
+}
+
+/// Check if an editing session is active
+#[wasm_bindgen]
+pub fn is_editing() -> bool {
+    with_session(|_| true).unwrap_or(false)
 }
 
 fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
@@ -132,20 +93,16 @@ fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
     }
 }
 
-// =============================================================================
-// HANDLE-BASED EDITOR FUNCTIONS
-// =============================================================================
-
-/// Get the number of keyframes in a session's clip
+/// Get the number of keyframes in the current clip
 #[wasm_bindgen]
-pub fn get_keyframe_count(handle: EditorHandle) -> usize {
-    with_session_ref(handle, |session| session.clip.keyframes.len()).unwrap_or(0)
+pub fn get_keyframe_count() -> usize {
+    with_session(|session| session.clip.keyframes.len()).unwrap_or(0)
 }
 
 /// Get the time of the current keyframe
 #[wasm_bindgen]
-pub fn get_keyframe_time(handle: EditorHandle) -> f32 {
-    with_session_ref(handle, |session| {
+pub fn get_keyframe_time() -> f32 {
+    with_session(|session| {
         session
             .clip
             .keyframes
@@ -158,14 +115,14 @@ pub fn get_keyframe_time(handle: EditorHandle) -> f32 {
 
 /// Get the current keyframe index
 #[wasm_bindgen]
-pub fn get_keyframe_index(handle: EditorHandle) -> usize {
-    with_session_ref(handle, |session| session.keyframe_index).unwrap_or(0)
+pub fn get_keyframe_index() -> usize {
+    with_session(|session| session.keyframe_index).unwrap_or(0)
 }
 
 /// Set the current keyframe index for editing
 #[wasm_bindgen]
-pub fn set_keyframe_index(handle: EditorHandle, index: usize) {
-    with_session(handle, |session| {
+pub fn set_keyframe_index(index: usize) {
+    with_session_mut(|session| {
         if index < session.clip.keyframes.len() {
             session.keyframe_index = index;
         }
@@ -174,8 +131,8 @@ pub fn set_keyframe_index(handle: EditorHandle, index: usize) {
 
 /// Add a new keyframe as a copy of the one at after_index
 #[wasm_bindgen]
-pub fn add_keyframe(handle: EditorHandle, after_index: usize) {
-    with_session(handle, |session| {
+pub fn add_keyframe(after_index: usize) {
+    with_session_mut(|session| {
         let clip = &mut session.clip;
         if after_index < clip.keyframes.len() {
             let prev_keyframe = clip.keyframes[after_index].clone();
@@ -201,8 +158,8 @@ pub fn add_keyframe(handle: EditorHandle, after_index: usize) {
 
 /// Remove a keyframe by index (won't remove last keyframe)
 #[wasm_bindgen]
-pub fn delete_keyframe(handle: EditorHandle, index: usize) {
-    with_session(handle, |session| {
+pub fn delete_keyframe(index: usize) {
+    with_session_mut(|session| {
         let clip = &mut session.clip;
         if clip.keyframes.len() > 1 && index < clip.keyframes.len() {
             clip.keyframes.remove(index);
@@ -215,10 +172,10 @@ pub fn delete_keyframe(handle: EditorHandle, index: usize) {
     });
 }
 
-/// Export the session's clip as JSON
+/// Export the current clip as JSON
 #[wasm_bindgen]
-pub fn export_clip_json(handle: EditorHandle) -> String {
-    with_session_ref(handle, |session| {
+pub fn export_clip_json() -> String {
+    with_session(|session| {
         session.clip.to_json_string().unwrap_or_else(|e| {
             log::error!("Failed to export animation: {}", e);
             String::from("{}")
@@ -240,14 +197,14 @@ pub struct JointInfo {
 
 /// Get joint info for a bone in the current keyframe
 #[wasm_bindgen]
-pub fn get_bone_info(handle: EditorHandle, bone_index: usize) -> Option<JointInfo> {
-    if bone_index >= crate::bone_hierarchy::BoneId::COUNT {
+pub fn get_bone_info(bone_index: usize) -> Option<JointInfo> {
+    if bone_index >= crate::bone::BoneId::COUNT {
         return None;
     }
 
-    with_session_ref(handle, |session| {
+    with_session(|session| {
         let pose = &session.clip.keyframes.get(session.keyframe_index)?.pose;
-        let id = crate::bone_hierarchy::BoneId::ALL[bone_index];
+        let id = crate::bone::BoneId::ALL[bone_index];
         let rot = pose.local_rotations[bone_index];
         let (rx, ry, rz) = rot.to_euler(glam::EulerRot::XYZ);
         let pos = pose.get_position(id);
@@ -265,32 +222,31 @@ pub fn get_bone_info(handle: EditorHandle, bone_index: usize) -> Option<JointInf
 
 /// Set joint rotation for a bone in the current keyframe
 #[wasm_bindgen]
-pub fn set_bone_rotation(handle: EditorHandle, bone_index: usize, rx: f32, ry: f32, rz: f32) {
-    if bone_index >= crate::bone_hierarchy::BoneId::COUNT {
+pub fn set_bone_rotation(bone_index: usize, rx: f32, ry: f32, rz: f32) {
+    if bone_index >= crate::bone::BoneId::COUNT {
         return;
     }
 
-    with_session(handle, |session| {
+    with_session_mut(|session| {
         if session.keyframe_index < session.clip.keyframes.len() {
             let pose = &mut session.clip.keyframes[session.keyframe_index].pose;
-            let id = crate::bone_hierarchy::BoneId::ALL[bone_index];
+            let id = crate::bone::BoneId::ALL[bone_index];
             let q = glam::Quat::from_euler(
                 glam::EulerRot::XYZ,
                 rx.to_radians(),
                 ry.to_radians(),
                 rz.to_radians(),
             );
-            // Direct mutation - no std::mem::take needed!
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
-                .with_rotation(id, q);
+            *pose =
+                std::mem::replace(pose, crate::bone::RotationPose::default()).with_rotation(id, q);
         }
     });
 }
 
 /// Set joint position for a bone using IK/FK in the current keyframe
 #[wasm_bindgen]
-pub fn set_bone_position(handle: EditorHandle, bone_index: usize, x: f32, y: f32, z: f32) {
-    with_session(handle, |session| {
+pub fn set_bone_position(bone_index: usize, x: f32, y: f32, z: f32) {
+    with_session_mut(|session| {
         if session.keyframe_index >= session.clip.keyframes.len() {
             return;
         }
@@ -300,7 +256,7 @@ pub fn set_bone_position(handle: EditorHandle, bone_index: usize, x: f32, y: f32
 
         if bone_index == 0 {
             // Root position
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+            *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                 .with_root_position(target_pos)
                 .apply_floor_constraint();
             return;
@@ -313,48 +269,44 @@ pub fn set_bone_position(handle: EditorHandle, bone_index: usize, x: f32, y: f32
 
         if !chain.is_empty() {
             // IK
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+            *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                 .apply_ik(&chain, target_pos)
                 .apply_floor_constraint();
         } else {
             // FK Logic
-            let pivot_pos = if let Some(parent) =
-                crate::bone_hierarchy::BONE_HIERARCHY[bone_id.index()].parent
-            {
-                pose.get_position(parent)
-            } else {
-                pose.root_position
-            };
+            let pivot_pos =
+                if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
+                    pose.get_position(parent)
+                } else {
+                    pose.root_position
+                };
 
             let target_dir = (target_pos - pivot_pos).normalize_or_zero();
             if target_dir.length_squared() > 1e-6 {
                 let parent_rot = compute_world_rotation(pose, bone_id);
-                let default_dir = crate::bone_hierarchy::BONE_HIERARCHY[bone_id.index()]
+                let default_dir = crate::bone::BONE_HIERARCHY[bone_id.index()]
                     .direction
                     .normalize();
                 let target_dir_local = parent_rot.inverse() * target_dir;
                 let delta_rot = glam::Quat::from_rotation_arc(default_dir, target_dir_local);
 
-                *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                     .with_rotation(bone_id, delta_rot.normalize());
             }
 
             // Apply floor constraint
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+            *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                 .apply_floor_constraint();
         }
     });
 }
 
 /// Compute world rotation for a bone's parent (helper for FK)
-fn compute_world_rotation(
-    pose: &crate::bone_hierarchy::RotationPose,
-    bone_id: BoneId,
-) -> glam::Quat {
-    if let Some(parent) = crate::bone_hierarchy::BONE_HIERARCHY[bone_id.index()].parent {
+fn compute_world_rotation(pose: &crate::bone::RotationPose, bone_id: BoneId) -> glam::Quat {
+    if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
         let mut rot = pose.local_rotations[parent.index()];
         let mut p = parent;
-        while let Some(grandparent) = crate::bone_hierarchy::BONE_HIERARCHY[p.index()].parent {
+        while let Some(grandparent) = crate::bone::BONE_HIERARCHY[p.index()].parent {
             rot = pose.local_rotations[grandparent.index()] * rot;
             p = grandparent;
         }
@@ -364,10 +316,9 @@ fn compute_world_rotation(
     }
 }
 
-/// Apply a screen-space drag to a joint (handle-based version)
+/// Apply a screen-space drag to a joint
 #[wasm_bindgen]
 pub fn drag_joint(
-    handle: EditorHandle,
     joint_index: usize,
     dx: f32,
     dy: f32,
@@ -383,7 +334,7 @@ pub fn drag_joint(
     let view_mat = glam::Mat4::from_cols_array(view.try_into().unwrap());
     let proj_mat = glam::Mat4::from_cols_array(proj.try_into().unwrap());
 
-    with_session(handle, |session| {
+    with_session_mut(|session| {
         if session.keyframe_index >= session.clip.keyframes.len() {
             return;
         }
@@ -395,7 +346,7 @@ pub fn drag_joint(
             let current_pos = pose.root_position;
             let target_pos =
                 project_and_offset(current_pos, dx, dy, width, height, view_mat, proj_mat);
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+            *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                 .with_root_position(target_pos)
                 .apply_floor_constraint();
             return;
@@ -411,44 +362,37 @@ pub fn drag_joint(
 
         if !chain.is_empty() {
             // IK
-            *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+            *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                 .apply_ik(&chain, target_pos)
                 .apply_floor_constraint();
         } else {
             // FK
-            let pivot_pos = if let Some(parent) =
-                crate::bone_hierarchy::BONE_HIERARCHY[bone_id.index()].parent
-            {
-                pose.get_position(parent)
-            } else {
-                pose.root_position
-            };
+            let pivot_pos =
+                if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
+                    pose.get_position(parent)
+                } else {
+                    pose.root_position
+                };
 
             let target_dir = (target_pos - pivot_pos).normalize_or_zero();
             if target_dir.length_squared() > 1e-6 {
                 let parent_rot = compute_world_rotation(pose, bone_id);
-                let default_dir = crate::bone_hierarchy::BONE_HIERARCHY[bone_id.index()]
+                let default_dir = crate::bone::BONE_HIERARCHY[bone_id.index()]
                     .direction
                     .normalize();
                 let target_dir_local = parent_rot.inverse() * target_dir;
                 let delta_rot = glam::Quat::from_rotation_arc(default_dir, target_dir_local);
 
-                *pose = std::mem::replace(pose, crate::bone_hierarchy::RotationPose::default())
+                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
                     .with_rotation(bone_id, delta_rot.normalize());
             }
         }
     });
 }
 
-/// Get screen positions of all joints for a session (for picking)
+/// Get screen positions of all joints (for picking)
 #[wasm_bindgen]
-pub fn get_joint_positions(
-    handle: EditorHandle,
-    view: &[f32],
-    proj: &[f32],
-    width: f32,
-    height: f32,
-) -> Vec<f32> {
+pub fn get_joint_positions(view: &[f32], proj: &[f32], width: f32, height: f32) -> Vec<f32> {
     if view.len() < 16 || proj.len() < 16 {
         return Vec::new();
     }
@@ -457,7 +401,7 @@ pub fn get_joint_positions(
     let proj_mat = glam::Mat4::from_cols_array(proj.try_into().unwrap());
     let view_proj = proj_mat * view_mat;
 
-    with_session_ref(handle, |session| {
+    with_session(|session| {
         let keyframe = session.clip.keyframes.get(session.keyframe_index)?;
         let skeleton = keyframe.pose.to_skeleton();
 

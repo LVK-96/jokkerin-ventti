@@ -1,0 +1,219 @@
+import { Exercise } from './types';
+import { WorkoutState, WorkoutPhase } from './workout-state';
+
+export class UIController {
+    // Elements
+    private startButton: HTMLButtonElement | null;
+    private progressBarContainer: HTMLElement | null;
+    private progressBar: HTMLElement | null;
+    private timerEl: HTMLElement | null;
+    private prevButton: HTMLButtonElement | null;
+    private nextButton: HTMLButtonElement | null;
+    private exerciseCountEl: HTMLElement | null;
+    private exerciseNameEl: HTMLElement | null;
+    private setCountEl: HTMLElement | null;
+    private textSizeSlider: HTMLInputElement | null;
+    
+    // State for text resizing
+    private elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
+
+    constructor() {
+        this.startButton = document.getElementById('startButton') as HTMLButtonElement;
+        this.progressBarContainer = document.getElementById('progress-bar-container');
+        this.progressBar = document.getElementById('progress-bar');
+        this.timerEl = document.getElementById('timer');
+        this.prevButton = document.getElementById('prevButton') as HTMLButtonElement;
+        this.nextButton = document.getElementById('nextButton') as HTMLButtonElement;
+        this.exerciseCountEl = document.getElementById('exercise-count');
+        this.exerciseNameEl = document.getElementById('exercise-name');
+        this.setCountEl = document.getElementById('set-count');
+        this.textSizeSlider = document.getElementById('textSizeSlider') as HTMLInputElement;
+
+        this.initTextResizing();
+    }
+
+    private initTextResizing() {
+        if (this.textSizeSlider) {
+             this.textSizeSlider.addEventListener('input', () => this.updateTextSize());
+        }
+    }
+
+    public attachStartHandler(handler: () => void) {
+        if (this.startButton) {
+            // Remove any existing listeners by cloning? No, just add unique listener.
+            // Original code used { once: true }.
+            this.startButton.addEventListener('click', () => {
+                handler();
+            }, { once: true });
+        }
+    }
+
+    public attachNavigationHandlers(onPrev: () => void, onNext: () => void) {
+        if (this.prevButton) {
+            this.prevButton.addEventListener('click', onPrev);
+        }
+        if (this.nextButton) {
+            this.nextButton.addEventListener('click', onNext);
+        }
+    }
+
+    public showWorkoutScreen() {
+        if (this.startButton) this.startButton.hidden = true;
+        if (this.progressBarContainer) this.progressBarContainer.hidden = false;
+        if (this.progressBar) this.progressBar.hidden = false;
+        if (this.timerEl) this.timerEl.hidden = false;
+        if (this.prevButton) this.prevButton.hidden = false;
+        if (this.nextButton) this.nextButton.hidden = false;
+        
+        // Text sizing logic
+        this.updateTextSizes(0);
+        this.resetElementsWithText();
+        this.storeElementsWithText();
+        this.updateTextSize();
+    }
+
+    public reset() {
+        if (this.startButton) {
+             this.startButton.hidden = false;
+        }
+        if (this.progressBarContainer) this.progressBarContainer.hidden = true;
+        if (this.progressBar) this.progressBar.hidden = true;
+        if (this.timerEl) this.timerEl.hidden = true;
+        if (this.prevButton) this.prevButton.hidden = true;
+        if (this.nextButton) this.nextButton.hidden = true;
+        
+        if (this.exerciseCountEl) this.exerciseCountEl.innerText = '';
+        if (this.setCountEl) this.setCountEl.innerText = '';
+        if (this.exerciseNameEl) {
+            // Original code set this to first exercise name on reset if available
+            // but we'll let the main controller handle that via update() or manual set.
+        }
+        
+        document.body.style.backgroundColor = '#ffffff';
+    }
+    
+    public update(state: WorkoutState, exercises: Exercise[]) {
+        const currentExercise = exercises[state.exerciseIndex];
+
+        if (state.phase === WorkoutPhase.Finished) {
+            this.showFinished(exercises.length);
+            return;
+        }
+
+        const nextExerciseName = (state.exerciseIndex < exercises.length - 1) 
+            ? exercises[state.exerciseIndex + 1].name 
+            : null;
+
+        // Colors
+        this.updateColors(state);
+
+        // Progress Bar & Timer
+        let timerText = '';
+        if (state.phase === WorkoutPhase.Rest) {
+             timerText = `${state.pauseTimer}`;
+             if (this.progressBar) {
+                 const percentage = (state.pauseTimer / currentExercise.pauseTime) * 100;
+                 this.progressBar.style.width = `${percentage}%`;
+                 this.progressBar.style.backgroundColor = '#ff9800'; // Orange
+             }
+        } else {
+             // Ready or Workout
+             timerText = `${state.workoutTimer}`;
+             if (this.progressBar) {
+                 const total = currentExercise.workoutTime;
+                 const percentage = ((total - state.workoutTimer) / total) * 100;
+                 this.progressBar.style.width = `${percentage}%`;
+                 this.progressBar.style.backgroundColor = '#4caf50'; // Green
+             }
+        }
+        if (this.timerEl) this.timerEl.innerText = timerText;
+
+        // Text
+        if (this.exerciseCountEl && this.exerciseNameEl) {
+            if (state.phase === WorkoutPhase.Ready) {
+                 this.exerciseCountEl.innerText = 'Next';
+                 this.exerciseNameEl.innerText = currentExercise.name;
+            } else if (state.phase === WorkoutPhase.Rest && state.setIndex === currentExercise.setCount && nextExerciseName) {
+                 this.exerciseCountEl.innerText = 'Next';
+                 this.exerciseNameEl.innerText = nextExerciseName;
+            } else {
+                 this.exerciseCountEl.innerText = `Exercise ${state.exerciseIndex + 1} of ${exercises.length}`;
+                 this.exerciseNameEl.innerText = currentExercise.name;
+            }
+        }
+
+        if (this.setCountEl) {
+             this.setCountEl.innerText = `Set ${state.setIndex} of ${currentExercise.setCount}`;
+        }
+        
+        // Buttons
+        if (this.prevButton) this.prevButton.disabled = state.exerciseIndex <= 0;
+        if (this.nextButton) this.nextButton.disabled = state.exerciseIndex >= exercises.length - 1;
+    }
+
+    private updateColors(state: WorkoutState) {
+        const COLOR_REST = '#ffe7cd';
+        const COLOR_WORKOUT = '#d7ffce';
+        
+        let color = '#ffffff';
+        if (state.phase === WorkoutPhase.Ready) {
+             color = COLOR_WORKOUT;
+        } else if (state.phase === WorkoutPhase.Rest) {
+             color = COLOR_REST;
+        } else if (state.phase === WorkoutPhase.Workout) {
+             color = state.workoutTimer > 0 ? COLOR_WORKOUT : COLOR_REST;
+        }
+        document.body.style.backgroundColor = color;
+    }
+
+    private showFinished(totalExercises: number) {
+        if (this.exerciseCountEl) this.exerciseCountEl.innerText = `Exercise ${totalExercises} of ${totalExercises}`; 
+        if (this.exerciseNameEl) this.exerciseNameEl.innerText = 'Workout Done';
+        if (this.timerEl) this.timerEl.innerText = '';
+        if (this.setCountEl) this.setCountEl.innerText = '';
+        if (this.prevButton) { this.prevButton.disabled = true; this.prevButton.hidden = true; }
+        if (this.nextButton) { this.nextButton.disabled = true; this.nextButton.hidden = true; }
+        document.body.style.backgroundColor = '#ffffff';
+    }
+    
+    // Text Resizing Helpers
+    private storeElementsWithText() {
+        this.elementsWithText = Array.from(document.querySelectorAll('*'))
+        .filter((element): element is HTMLElement => {
+            return element instanceof HTMLElement && element.textContent?.trim().length !== 0;
+        })
+        .map((element) => {
+            const computedStyle = window.getComputedStyle(element);
+            const originalSize = parseFloat(computedStyle.getPropertyValue('font-size'));
+            return { element, originalSize };
+        });
+    }
+    
+    private resetElementsWithText() {
+        this.elementsWithText = [];
+    }
+    
+    private updateTextSizes(percentage: number) {
+         this.elementsWithText.forEach(({ element, originalSize }) => {
+            const newSize = originalSize * (1 + percentage / 100);
+            element.style.fontSize = newSize + 'px';
+        });
+    }
+    
+    public updateTextSize() {
+        if (this.textSizeSlider) {
+            const val = parseInt(this.textSizeSlider.value);
+            this.updateTextSizes(val);
+        }
+    }
+    
+    public toggleTextSizeSlider() {
+         if (this.textSizeSlider) {
+             this.textSizeSlider.hidden = !this.textSizeSlider.hidden;
+         }
+    }
+
+    public isStartButtonHidden(): boolean {
+        return this.startButton ? this.startButton.hidden : true;
+    }
+}
