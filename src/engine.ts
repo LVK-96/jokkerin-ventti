@@ -64,7 +64,7 @@ export class WebGPUEngine {
         this.fpsElement.id = 'fps-counter';
         this.fpsElement.style.cssText = `
             position: fixed;
-            top: 8px;
+            bottom: 8px;
             right: 8px;
             background: rgba(0, 0, 0, 0.6);
             color: #ffcc00;
