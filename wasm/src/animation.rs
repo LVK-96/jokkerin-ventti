@@ -1,42 +1,43 @@
-use crate::bone::{RotationAnimationClip, RotationPose};
-use std::collections::HashMap;
+use crate::bone::{AnimationId, RotationAnimationClip, RotationPose};
 use wasm_bindgen::prelude::*;
 
 /// Animation library - loaded once, read-only during playback
 ///
-/// Stores all available animation clips by name.
-/// This is separate from playback state so clips can be shared/referenced.
-#[derive(Default)]
+/// Stores all available animation clips by enum ID.
+/// This avoids hash map lookups entirely.
 pub struct AnimationLibrary {
-    clips: HashMap<String, RotationAnimationClip>,
+    // Fixed size array, indexed by AnimationId
+    clips: [Option<RotationAnimationClip>; AnimationId::COUNT],
+}
+
+impl Default for AnimationLibrary {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AnimationLibrary {
     /// Create empty animation library
     pub fn new() -> Self {
+        const NONE_CLIP: Option<RotationAnimationClip> = None;
         Self {
-            clips: HashMap::new(),
+            clips: [NONE_CLIP; AnimationId::COUNT],
         }
     }
 
     /// Add an animation clip to the library
-    pub fn add_clip(&mut self, clip: RotationAnimationClip) {
-        self.clips.insert(clip.name.clone(), clip);
+    pub fn add_clip(&mut self, id: AnimationId, clip: RotationAnimationClip) {
+        self.clips[id.index()] = Some(clip);
     }
 
     /// Get a clip by name
-    pub fn get_clip(&self, name: &str) -> Option<&RotationAnimationClip> {
-        self.clips.get(name)
+    pub fn get_clip(&self, id: AnimationId) -> Option<&RotationAnimationClip> {
+        self.clips[id.index()].as_ref()
     }
 
     /// Check if a clip exists
-    pub fn has_clip(&self, name: &str) -> bool {
-        self.clips.contains_key(name)
-    }
-
-    /// Get all clip names
-    pub fn clip_names(&self) -> impl Iterator<Item = &String> {
-        self.clips.keys()
+    pub fn has_clip(&self, id: AnimationId) -> bool {
+        self.clips[id.index()].is_some()
     }
 }
 
@@ -45,17 +46,17 @@ impl AnimationLibrary {
 /// Immutable value type - can be replaced entirely each frame.
 #[derive(Clone, Debug, Default)]
 pub struct PlaybackState {
-    /// Current exercise name
-    pub exercise: String,
+    /// Current exercise ID
+    pub exercise: Option<AnimationId>,
     /// Current time in seconds (modulo duration for looping)
     pub time: f32,
 }
 
 impl PlaybackState {
     /// Create new playback state
-    pub fn new(exercise: String) -> Self {
+    pub fn new(exercise: AnimationId) -> Self {
         Self {
-            exercise,
+            exercise: Some(exercise),
             time: 0.0,
         }
     }
@@ -69,9 +70,9 @@ impl PlaybackState {
     }
 
     /// Change exercise, reset time
-    pub fn set_exercise(self, exercise: String) -> PlaybackState {
+    pub fn set_exercise(self, exercise: AnimationId) -> PlaybackState {
         PlaybackState {
-            exercise,
+            exercise: Some(exercise),
             time: 0.0,
         }
     }
@@ -82,11 +83,18 @@ impl PlaybackState {
 /// Given a library and playback state, return the current pose.
 /// Returns bind pose if exercise not found.
 pub fn sample_animation(library: &AnimationLibrary, state: &PlaybackState) -> RotationPose {
-    if let Some(clip) = library.get_clip(&state.exercise) {
-        clip.sample(state.time)
-    } else {
-        RotationPose::bind_pose()
+    let id = match state.exercise {
+        Some(id) => id,
+        None => return RotationPose::bind_pose(),
+    };
+
+    // Direct O(1) array access
+    if let Some(clip) = library.get_clip(id) {
+        return clip.sample(state.time);
     }
+
+    // Fallback if clip not loaded
+    RotationPose::bind_pose()
 }
 
 #[cfg(test)]
@@ -96,7 +104,8 @@ mod tests {
     #[test]
     fn test_empty_library_returns_bind_pose() {
         let library = AnimationLibrary::new();
-        let state = PlaybackState::new("nonexistent".to_string());
+        // Just pick first enum variant for testing
+        let state = PlaybackState::new(AnimationId::JumpingJacks);
 
         let pose = sample_animation(&library, &state);
         // Should return bind pose without panicking
@@ -105,22 +114,22 @@ mod tests {
 
     #[test]
     fn test_playback_advance() {
-        let state = PlaybackState::new("test".to_string());
+        let state = PlaybackState::new(AnimationId::Lunges);
         let advanced = state.advance(1.5);
 
         assert_eq!(advanced.time, 1.5);
-        assert_eq!(advanced.exercise, "test");
+        assert_eq!(advanced.exercise, Some(AnimationId::Lunges));
     }
 
     #[test]
     fn test_set_exercise_resets_time() {
         let state = PlaybackState {
-            exercise: "old".to_string(),
+            exercise: Some(AnimationId::JumpingJacks),
             time: 5.0,
         };
-        let changed = state.set_exercise("new".to_string());
+        let changed = state.set_exercise(AnimationId::SquatJumps);
 
-        assert_eq!(changed.exercise, "new");
+        assert_eq!(changed.exercise, Some(AnimationId::SquatJumps));
         assert_eq!(changed.time, 0.0);
     }
 }
@@ -128,10 +137,10 @@ mod tests {
 /// Set the current exercise for animation
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn set_exercise(name: String) {
+pub fn set_exercise(id: AnimationId) {
     crate::state::with_app_state_mut(|app| {
-        app.playback = app.playback.clone().set_exercise(name.clone());
-        log::info!("Exercise set to: {}", name);
+        app.playback = app.playback.clone().set_exercise(id);
+        log::info!("Exercise set to: {:?}", id);
     });
 }
 
@@ -146,7 +155,7 @@ extern "C" {
 /// Call this during startup for each exercise you want to animate
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn load_animation(name_override: String, json_data: String) -> Result<(), JsValue> {
+pub fn load_animation(id: AnimationId, json_data: String) -> Result<(), JsValue> {
     // Parse into a generic Value first to check the version
     let v: serde_json::Value = serde_json::from_str(&json_data)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
@@ -157,19 +166,18 @@ pub fn load_animation(name_override: String, json_data: String) -> Result<(), Js
     if is_v2 {
         // Version 2: Rotation-based animation
         // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
-        let mut clip = RotationAnimationClip::from_json(&json_data)
+        let clip = RotationAnimationClip::from_json(&json_data)
             .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
 
-        // Override name with the one provided by JS (the map key)
-        clip.name = name_override.clone();
-        let name = clip.name.clone();
+        // We don't rely on clip name anymore, but might keep it for debugging
+        // clip.name = name_override.clone();
 
         // Store in AnimationLibrary via AppState
         crate::state::with_app_state_mut(|app| {
-            app.animation_library.add_clip(clip);
+            app.animation_library.add_clip(id, clip);
         });
 
-        log::info!("Loaded animation (v2): {}", name);
+        // log::info!("Loaded animation (v2): {:?}", id);
     } else {
         return Err(JsValue::from_str("Only version 2 animations are supported"));
     }

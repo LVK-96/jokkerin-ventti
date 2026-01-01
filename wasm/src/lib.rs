@@ -4,8 +4,10 @@ pub mod animation;
 #[cfg(target_arch = "wasm32")]
 mod bench;
 pub mod bone;
+
 /// Backwards compatibility alias for bone_hierarchy -> bone
 pub use bone as bone_hierarchy;
+pub use bone::AnimationId;
 pub mod camera;
 
 #[cfg(target_arch = "wasm32")]

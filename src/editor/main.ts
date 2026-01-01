@@ -17,15 +17,17 @@ import initWasm, {
     set_bone_position,
     set_exercise,
     update_skeleton_from_session,
+    AnimationId
 } from "../../wasm/pkg/jokkerin_ventti_wasm";
 import { setCameraEnabled, getViewMatrix, getProjectionMatrix } from '../camera';
-import { animationMap } from '../animations';
+import { resolveAnimationId, animationData, DISPLAY_NAMES } from '../animations';
 import { initHistory, saveUndoState, undo, redo, clearHistory } from './history';
 import { drawGizmo } from './overlay';
 import { WebGPUEngine } from '../engine';
 
 // --- State ---
 let currentExerciseName = '';
+let currentExerciseId: AnimationId | null = null;
 let currentKeyframe = 0;
 let isDragging = false;
 let selectedJoint: number | null = null;
@@ -59,8 +61,10 @@ async function init() {
             loadPose: (json) => {
                 // Destroy old session, create new one with modified clip
                 stop_editing();
-                load_animation(currentExerciseName, json);
-                start_editing(currentExerciseName);
+                if (currentExerciseId !== null) {
+                    load_animation(currentExerciseId, json);
+                    start_editing(currentExerciseId);
+                }
             },
             setKeyframeIndex: (idx) => {
                 currentKeyframe = idx;
@@ -119,10 +123,11 @@ function populateExerciseSelect() {
         select.remove(1);
     }
 
-    for (const name of animationMap.keys()) {
+    // Populate using DISPLAY_NAMES
+    for (const displayName of Object.values(DISPLAY_NAMES)) {
         const option = document.createElement('option');
-        option.value = name;
-        option.textContent = name;
+        option.value = displayName;
+        option.textContent = displayName;
         select.appendChild(option);
     }
 
@@ -133,22 +138,29 @@ function populateExerciseSelect() {
 }
 
 function loadExercise(name: string) {
-    if (!animationMap.has(name)) return;
+    const id = resolveAnimationId(name);
+    if (id === undefined) return;
 
     // Destroy previous session if exists
     if (is_editing()) {
         stop_editing();
-
     }
 
     currentExerciseName = name;
-    const json = animationMap.get(name)!;
+    currentExerciseId = id;
 
-    set_exercise(name);
-    load_animation(name, json);
+    // Look up animation data by ID
+    const json = animationData[id];
+    if (!json) {
+        console.error(`No animation data for ${name} (ID: ${id})`);
+        return;
+    }
+
+    set_exercise(id);
+    load_animation(id, json);
 
     // Create new editor session with handle
-    start_editing(name);
+    start_editing(id);
 
 
     currentKeyframe = 0;
@@ -162,6 +174,7 @@ function loadExercise(name: string) {
 
 let overlayCtx: CanvasRenderingContext2D | null = null;
 let overlayCanvasRef: HTMLCanvasElement | null = null;
+
 
 function initOverlay(canvas: HTMLCanvasElement) {
     overlayCanvasRef = canvas;

@@ -1,7 +1,7 @@
 import { Exercise, Workout } from './types';
-import { set_exercise, load_animation, update_skeleton_from_playback } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { set_exercise, load_animation, update_skeleton_from_playback, AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { WebGPUEngine } from './engine';
-import { animationMap } from './animations';
+import { resolveAnimationId, animationData } from './animations';
 import { AudioManager } from './audio-manager';
 import { UIController } from './ui-controller';
 import { WorkoutState, WorkoutPhase, createInitialState, tick, WorkoutEvent } from './workout-state';
@@ -35,6 +35,17 @@ async function loadWorkout(): Promise<void> {
     const response = await fetch(WORKOUT_JSON_PATH);
     const workout: Workout = await response.json();
     exercises = workout.exercises;
+
+    // Resolve animation IDs at load time
+    exercises.forEach(ex => {
+        const resolvedId = resolveAnimationId(ex.name);
+        if (resolvedId !== undefined) {
+            ex.animationId = resolvedId;
+        } else {
+            console.warn(`Could not resolve animation ID for exercise: ${ex.name}`);
+        }
+    });
+
     // Populate exercise order for the keyframe editor
     exerciseOrder = exercises.map(e => e.name);
     state = createInitialState(exercises);
@@ -63,7 +74,11 @@ function handleEvents(events: WorkoutEvent[]) {
                 audio.play(event.sound);
                 break;
             case 'start_exercise':
-                set_exercise(event.exerciseName);
+                {
+                    if (exercises[state.exerciseIndex].animationId !== undefined) {
+                        set_exercise(exercises[state.exerciseIndex].animationId!);
+                    }
+                }
                 break;
             case 'finished':
                 stopAndResetWorkout();
@@ -93,7 +108,10 @@ function startWorkout() {
 
     // Initialize animation immediately
     if (exercises.length > 0) {
-        set_exercise(exercises[state.exerciseIndex].name);
+        const exercise = exercises[state.exerciseIndex];
+        if (exercise.animationId !== undefined) {
+            set_exercise(exercise.animationId);
+        }
     }
 
     ui.showWorkoutScreen();
@@ -144,8 +162,11 @@ function skipToExercise(index: number): void {
         pauseTimer: exercises[index].pauseTime
     };
 
-    set_exercise(exercises[index].name);
-    console.log(`Skipped to exercise ${index + 1}: ${exercises[index].name}`);
+    const exercise = exercises[index];
+    if (exercise.animationId !== undefined) {
+        set_exercise(exercise.animationId);
+    }
+    console.log(`Skipped to exercise ${index + 1}: ${name}`);
 
     ui.update(state, exercises);
 }
@@ -179,8 +200,9 @@ async function init(): Promise<void> {
     });
 
     // Load keyframe animations for exercises
-    for (const [name, animJson] of animationMap.entries()) {
-        load_animation(name, animJson);
+    for (const [idStr, animJson] of Object.entries(animationData)) {
+        const id = Number(idStr) as AnimationId;
+        load_animation(id, animJson);
     }
 
     // Initialize UI handlers

@@ -55,7 +55,6 @@ pub fn solve_fabrik(
             }
         }
     }
-
     joints
 }
 
@@ -127,7 +126,7 @@ mod tests {
         let lengths = vec![];
         let target = Vec3::new(1.0, 0.0, 0.0);
 
-        let result = solve_fabrik(joints.clone(), &lengths, target, 10, 0.001);
+        let result = solve_fabrik(joints, &lengths, target, 10, 0.001);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], Vec3::ZERO);

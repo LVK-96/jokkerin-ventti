@@ -1,18 +1,20 @@
-pub mod id;
+pub mod anim_ids;
 pub mod cache;
-pub mod pose;
 pub mod clip;
+pub mod id;
+pub mod pose;
 
-pub use id::*;
+pub use anim_ids::*;
 pub use cache::*;
-pub use pose::*;
 pub use clip::*;
+pub use id::*;
+pub use pose::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use glam::{Vec3, Quat};
+    use glam::{Quat, Vec3};
 
     #[test]
     fn test_bind_pose_positions() {

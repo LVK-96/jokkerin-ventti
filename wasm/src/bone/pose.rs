@@ -1,6 +1,6 @@
 use super::cache::{DirtyFlags, PoseCache};
-use super::id::{BONE_HIERARCHY, BoneId, DEFAULT_HIPS_Y, EPSILON, HIP_OFFSET_X, HIP_OFFSET_Y};
-use glam::{Quat, Vec3};
+use super::id::{BoneId, BONE_HIERARCHY, DEFAULT_HIPS_Y, EPSILON, HIP_OFFSET_X, HIP_OFFSET_Y};
+use glam::{Quat, Vec3, Vec3A};
 use std::cell::RefCell;
 
 /// Rotation-based pose for animation.
@@ -72,7 +72,7 @@ impl RotationPose {
     /// Get world position of a bone's end joint (computes FK if needed)
     pub fn get_position(&self, bone: BoneId) -> Vec3 {
         self.ensure_computed(bone);
-        self.cache.borrow().world_positions[bone.index()]
+        Vec3::from(self.cache.borrow().world_positions[bone.index()])
     }
 
     /// Ensure a bone's world transform is computed
@@ -103,7 +103,7 @@ impl RotationPose {
 
         let (parent_pos, parent_rot) = if let Some(parent) = def.parent {
             (
-                cache.world_positions[parent.index()],
+                Vec3::from(cache.world_positions[parent.index()]),
                 cache.world_rotations[parent.index()],
             )
         } else {
@@ -128,7 +128,7 @@ impl RotationPose {
         let world_pos = parent_pos + bone_vector;
 
         cache.world_rotations[bone.index()] = world_rot;
-        cache.world_positions[bone.index()] = world_pos;
+        cache.world_positions[bone.index()] = Vec3A::from(world_pos);
         cache.dirty = cache.dirty.with_cleared(bone);
     }
 
@@ -178,22 +178,22 @@ impl RotationPose {
         self.compute_all();
         let cache = self.cache.borrow();
 
-        use crate::skeleton::{RENDER_BONE_COUNT, compute_aligned_matrix, compute_offset_matrix};
+        use crate::skeleton::{compute_aligned_matrix, compute_offset_matrix, RENDER_BONE_COUNT};
         use crate::skeleton_constants::*;
         use glam::Vec3A;
 
         let mut matrices = [glam::Mat4::IDENTITY; RENDER_BONE_COUNT];
 
-        // Current positions (converted to Vec3A for consistency with constants)
+        // Current positions (stored as Vec3A in cache)
         let hips = Vec3A::from(self.root_position);
-        let neck = Vec3A::from(cache.world_positions[BoneId::Spine.index()]);
-        let head = Vec3A::from(cache.world_positions[BoneId::Head.index()]);
-        let left_shoulder = Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]);
-        let left_elbow = Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]);
-        let left_hand = Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]);
-        let right_shoulder = Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]);
-        let right_elbow = Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]);
-        let right_hand = Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]);
+        let neck = cache.world_positions[BoneId::Spine.index()];
+        let head = cache.world_positions[BoneId::Head.index()];
+        let left_shoulder = cache.world_positions[BoneId::LeftShoulder.index()];
+        let left_elbow = cache.world_positions[BoneId::LeftUpperArm.index()];
+        let left_hand = cache.world_positions[BoneId::LeftForearm.index()];
+        let right_shoulder = cache.world_positions[BoneId::RightShoulder.index()];
+        let right_elbow = cache.world_positions[BoneId::RightUpperArm.index()];
+        let right_hand = cache.world_positions[BoneId::RightForearm.index()];
 
         // Hip offsets
         let left_hip_offset =
@@ -203,11 +203,10 @@ impl RotationPose {
 
         let left_hip = Vec3A::from(self.root_position + left_hip_offset);
         let right_hip = Vec3A::from(self.root_position + right_hip_offset);
-
-        let left_knee = Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]);
-        let left_foot = Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]);
-        let right_knee = Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]);
-        let right_foot = Vec3A::from(cache.world_positions[BoneId::RightShin.index()]);
+        let left_knee = cache.world_positions[BoneId::LeftThigh.index()];
+        let left_foot = cache.world_positions[BoneId::LeftShin.index()];
+        let right_knee = cache.world_positions[BoneId::RightThigh.index()];
+        let right_foot = cache.world_positions[BoneId::RightShin.index()];
 
         // Cylinders
         matrices[0] = compute_aligned_matrix(DEFAULT_HIPS, DEFAULT_NECK, hips, neck);

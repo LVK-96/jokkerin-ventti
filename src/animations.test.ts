@@ -1,20 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { animationMap } from './animations';
+import { animationData, resolveAnimationId } from './animations';
+import { AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
 
-describe('animationMap', () => {
-    it('should be a Map', () => {
-        expect(animationMap).toBeInstanceOf(Map);
+describe('animation maps', () => {
+    it('resolveAnimationId should resolve expected exercises', () => {
+        expect(resolveAnimationId('Jumping Jacks')).toBe(AnimationId.JumpingJacks);
+        // "Burpees" in json is "burpees", workout is "Burpees"
+        expect(resolveAnimationId('Burpees')).toBe(AnimationId.Burpees);
+        // "Ab Crunch" -> "AbCrunch"
+        expect(resolveAnimationId('Ab Crunch')).toBe(AnimationId.AbCrunch);
     });
 
-    it('should contain expected keys', () => {
-        expect(animationMap.has('Jumping Jacks')).toBe(true);
-        expect(animationMap.has('Burpees')).toBe(true);
-    });
-
-    it('should have string values (JSON content)', () => {
-        const jumpingJacks = animationMap.get('Jumping Jacks');
-        expect(typeof jumpingJacks).toBe('string');
+    it('animationData should have JSON content for IDs', () => {
+        const id = AnimationId.JumpingJacks;
+        const json = animationData[id];
+        expect(typeof json).toBe('string');
         // Basic check if it looks like JSON
-        expect(jumpingJacks?.trim().startsWith('{')).toBe(true);
+        expect(json?.trim().startsWith('{')).toBe(true);
     });
 });

@@ -198,3 +198,6 @@ shader_cache/
 wasm/pkg/
 
 .vscode
+
+# Generated with build.rs
+wasm/src/bone/anim_ids.rs

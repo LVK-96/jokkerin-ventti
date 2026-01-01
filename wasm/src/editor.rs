@@ -19,16 +19,15 @@ where
 
 /// Start editing an animation clip for the given exercise
 #[wasm_bindgen]
-pub fn start_editing(exercise_name: &str) -> bool {
-    let name = exercise_name.to_string();
-
+pub fn start_editing(exercise: crate::bone::AnimationId) -> bool {
     crate::state::with_app_state_mut(|app| {
-        if let Some(clip) = app.animation_library.get_clip(&name).cloned() {
+        if let Some(clip) = app.animation_library.get_clip(exercise).cloned() {
+            let name = clip.name.clone();
             app.start_editing(clip);
             log::info!("Started editing: {}", name);
             true
         } else {
-            log::warn!("No animation loaded for exercise: {}", name);
+            log::warn!("No animation loaded for exercise ID: {:?}", exercise);
             false
         }
     })
@@ -415,22 +414,22 @@ pub fn get_joint_positions(view: &[f32], proj: &[f32], width: f32, height: f32) 
             cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0);
 
         let joints = [
-            hips,                                                              // hips
-            Vec3A::from(cache.world_positions[BoneId::Spine.index()]),         // neck
-            Vec3A::from(cache.world_positions[BoneId::Spine.index()]), // neck (duplicate for some reason)
-            Vec3A::from(cache.world_positions[BoneId::Head.index()]),  // head
-            Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]), // left_shoulder
-            Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]), // left_elbow
-            Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]), // left_hand
-            Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]), // right_shoulder
-            Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]), // right_elbow
-            Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]), // right_hand
-            Vec3A::from(pose.root_position + left_hip_offset),         // left_hip
-            Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]), // left_knee
-            Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]), // left_foot
-            Vec3A::from(pose.root_position + right_hip_offset),        // right_hip
-            Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]), // right_knee
-            Vec3A::from(cache.world_positions[BoneId::RightShin.index()]), // right_foot
+            hips,                                                 // hips
+            cache.world_positions[BoneId::Spine.index()],         // neck
+            cache.world_positions[BoneId::Spine.index()], // neck (duplicate for some reason)
+            cache.world_positions[BoneId::Head.index()],  // head
+            cache.world_positions[BoneId::LeftShoulder.index()], // left_shoulder
+            cache.world_positions[BoneId::LeftUpperArm.index()], // left_elbow
+            cache.world_positions[BoneId::LeftForearm.index()], // left_hand
+            cache.world_positions[BoneId::RightShoulder.index()], // right_shoulder
+            cache.world_positions[BoneId::RightUpperArm.index()], // right_elbow
+            cache.world_positions[BoneId::RightForearm.index()], // right_hand
+            Vec3A::from(pose.root_position + left_hip_offset), // left_hip
+            cache.world_positions[BoneId::LeftThigh.index()], // left_knee
+            cache.world_positions[BoneId::LeftShin.index()], // left_foot
+            Vec3A::from(pose.root_position + right_hip_offset), // right_hip
+            cache.world_positions[BoneId::RightThigh.index()], // right_knee
+            cache.world_positions[BoneId::RightShin.index()], // right_foot
         ];
 
         let mut positions = Vec::with_capacity(joints.len() * 2);
