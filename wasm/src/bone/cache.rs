@@ -18,6 +18,12 @@ impl DirtyFlags {
         (self.0 & (1 << bone.index())) != 0
     }
 
+    /// Check if any bone is dirty
+    #[inline]
+    pub fn is_any_dirty(&self) -> bool {
+        self.0 != 0
+    }
+
     /// Mark a bone and all its children as dirty
     /// Return new flags with a bone and all its children marked as dirty
     pub fn with_marked_dirty(self, bone: BoneId) -> Self {

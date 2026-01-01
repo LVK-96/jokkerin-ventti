@@ -66,8 +66,7 @@ pub fn compute_matrices_from_session(
         .unwrap_or_else(RotationPose::bind_pose);
 
     let pose = pose.apply_floor_constraint();
-    let skeleton = pose.to_skeleton();
-    skeleton.compute_bone_matrices()
+    pose.compute_bone_matrices()
 }
 
 /// Compute bone matrices from animation playback state
@@ -77,8 +76,7 @@ pub fn compute_matrices_from_playback(
 ) -> [glam::Mat4; RENDER_BONE_COUNT] {
     let pose = sample_animation(library, playback);
     let pose = pose.apply_floor_constraint();
-    let skeleton = pose.to_skeleton();
-    skeleton.compute_bone_matrices()
+    pose.compute_bone_matrices()
 }
 
 /// Update skeleton from the active editor session

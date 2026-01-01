@@ -30,17 +30,16 @@ mod tests {
             hips_pos.y
         );
 
-        let skeleton = pose.to_skeleton();
-
-        // Hips should be at root position
-        assert!((skeleton.hips.y - DEFAULT_HIPS_Y).abs() < 0.01);
-
         // Head should be above hips
-        assert!(skeleton.head.y > skeleton.hips.y);
+        let head_pos = pose.get_position(BoneId::Head);
+        assert!(head_pos.y > hips_pos.y);
 
         // Feet should be near ground
-        assert!(skeleton.left_foot.y < 0.1);
-        assert!(skeleton.right_foot.y < 0.1);
+        let left_foot_pos = pose.get_position(BoneId::LeftShin);
+        let right_foot_pos = pose.get_position(BoneId::RightShin);
+
+        assert!(left_foot_pos.y < 0.1);
+        assert!(right_foot_pos.y < 0.1);
     }
 
     #[test]

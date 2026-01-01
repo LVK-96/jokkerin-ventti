@@ -178,9 +178,9 @@ export class UIController {
     
     // Text Resizing Helpers
     private storeElementsWithText() {
-        this.elementsWithText = Array.from(document.querySelectorAll('*'))
+        this.elementsWithText = Array.from(document.querySelectorAll('#timer, #exercise-name, #set-count, #exercise-count'))
         .filter((element): element is HTMLElement => {
-            return element instanceof HTMLElement && element.textContent?.trim().length !== 0;
+            return element instanceof HTMLElement;
         })
         .map((element) => {
             const computedStyle = window.getComputedStyle(element);

@@ -1,7 +1,7 @@
+use super::cache::{DirtyFlags, PoseCache};
+use super::id::{BONE_HIERARCHY, BoneId, DEFAULT_HIPS_Y, EPSILON, HIP_OFFSET_X, HIP_OFFSET_Y};
 use glam::{Quat, Vec3};
 use std::cell::RefCell;
-use super::id::{BoneId, BONE_HIERARCHY, DEFAULT_HIPS_Y, HIP_OFFSET_X, HIP_OFFSET_Y, EPSILON};
-use super::cache::{DirtyFlags, PoseCache};
 
 /// Rotation-based pose for animation.
 ///
@@ -142,7 +142,9 @@ impl RotationPose {
 
     pub fn apply_floor_constraint(self) -> Self {
         // Need to compute to check positions
-        self.compute_all();
+        if self.cache.borrow().dirty.is_any_dirty() {
+            self.compute_all();
+        }
         use crate::skeleton::BONE_RADIUS;
 
         let mut min_y = self.root_position.y;
@@ -170,41 +172,106 @@ impl RotationPose {
         new_pose
     }
 
-    /// Convert to the old Skeleton format for rendering compatibility
-    pub fn to_skeleton(&self) -> crate::skeleton::Skeleton {
-        self.ensure_computed(BoneId::LeftShin); // Hack to trigger chain? Better just compute_all
+    /// Compute all bone matrices for skinning
+    /// Returns [Mat4; RENDER_BONE_COUNT]
+    pub fn compute_bone_matrices(&self) -> [glam::Mat4; crate::skeleton::RENDER_BONE_COUNT] {
         self.compute_all();
-
-        use glam::Vec3A;
         let cache = self.cache.borrow();
 
-        // Map rotation pose joints to skeleton positions
-        crate::skeleton::Skeleton {
-            hips: Vec3A::from(self.root_position),
-            neck: Vec3A::from(cache.world_positions[BoneId::Spine.index()]),
-            head: Vec3A::from(cache.world_positions[BoneId::Head.index()]),
-            left_shoulder: Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]),
-            left_elbow: Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]),
-            left_hand: Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]),
-            right_shoulder: Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]),
-            right_elbow: Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]),
-            right_hand: Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]),
+        use crate::skeleton::{RENDER_BONE_COUNT, compute_aligned_matrix, compute_offset_matrix};
+        use crate::skeleton_constants::*;
+        use glam::Vec3A;
 
-            // Calculate actual hip positions based on root rotation + offset
-            left_hip: Vec3A::from(
-                self.root_position
-                    + cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0),
-            ),
-            left_knee: Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]),
-            left_foot: Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]),
+        let mut matrices = [glam::Mat4::IDENTITY; RENDER_BONE_COUNT];
 
-            right_hip: Vec3A::from(
-                self.root_position
-                    + cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0),
-            ),
-            right_knee: Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]),
-            right_foot: Vec3A::from(cache.world_positions[BoneId::RightShin.index()]),
-        }
+        // Current positions (converted to Vec3A for consistency with constants)
+        let hips = Vec3A::from(self.root_position);
+        let neck = Vec3A::from(cache.world_positions[BoneId::Spine.index()]);
+        let head = Vec3A::from(cache.world_positions[BoneId::Head.index()]);
+        let left_shoulder = Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]);
+        let left_elbow = Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]);
+        let left_hand = Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]);
+        let right_shoulder = Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]);
+        let right_elbow = Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]);
+        let right_hand = Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]);
+
+        // Hip offsets
+        let left_hip_offset =
+            cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0);
+        let right_hip_offset =
+            cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0);
+
+        let left_hip = Vec3A::from(self.root_position + left_hip_offset);
+        let right_hip = Vec3A::from(self.root_position + right_hip_offset);
+
+        let left_knee = Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]);
+        let left_foot = Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]);
+        let right_knee = Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]);
+        let right_foot = Vec3A::from(cache.world_positions[BoneId::RightShin.index()]);
+
+        // Cylinders
+        matrices[0] = compute_aligned_matrix(DEFAULT_HIPS, DEFAULT_NECK, hips, neck);
+        matrices[1] =
+            compute_aligned_matrix(DEFAULT_NECK, DEFAULT_LEFT_SHOULDER, neck, left_shoulder);
+        matrices[2] = compute_aligned_matrix(
+            DEFAULT_LEFT_SHOULDER,
+            DEFAULT_LEFT_ELBOW,
+            left_shoulder,
+            left_elbow,
+        );
+        matrices[3] =
+            compute_aligned_matrix(DEFAULT_LEFT_ELBOW, DEFAULT_LEFT_HAND, left_elbow, left_hand);
+        matrices[4] =
+            compute_aligned_matrix(DEFAULT_NECK, DEFAULT_RIGHT_SHOULDER, neck, right_shoulder);
+        matrices[5] = compute_aligned_matrix(
+            DEFAULT_RIGHT_SHOULDER,
+            DEFAULT_RIGHT_ELBOW,
+            right_shoulder,
+            right_elbow,
+        );
+        matrices[6] = compute_aligned_matrix(
+            DEFAULT_RIGHT_ELBOW,
+            DEFAULT_RIGHT_HAND,
+            right_elbow,
+            right_hand,
+        );
+
+        matrices[7] = compute_aligned_matrix(DEFAULT_HIPS, DEFAULT_LEFT_HIP, hips, left_hip);
+        matrices[8] =
+            compute_aligned_matrix(DEFAULT_LEFT_HIP, DEFAULT_LEFT_KNEE, left_hip, left_knee);
+        matrices[9] =
+            compute_aligned_matrix(DEFAULT_LEFT_KNEE, DEFAULT_LEFT_FOOT, left_knee, left_foot);
+
+        matrices[10] = compute_aligned_matrix(DEFAULT_HIPS, DEFAULT_RIGHT_HIP, hips, right_hip);
+        matrices[11] =
+            compute_aligned_matrix(DEFAULT_RIGHT_HIP, DEFAULT_RIGHT_KNEE, right_hip, right_knee);
+        matrices[12] = compute_aligned_matrix(
+            DEFAULT_RIGHT_KNEE,
+            DEFAULT_RIGHT_FOOT,
+            right_knee,
+            right_foot,
+        );
+
+        // Head Sphere
+        matrices[13] = compute_offset_matrix(DEFAULT_HEAD, head);
+
+        // Debug joints
+        matrices[14] = compute_offset_matrix(DEFAULT_HIPS, hips);
+        matrices[15] = compute_offset_matrix(DEFAULT_NECK, neck);
+        matrices[16] = compute_offset_matrix(DEFAULT_LEFT_SHOULDER, left_shoulder);
+        matrices[17] = compute_offset_matrix(DEFAULT_LEFT_ELBOW, left_elbow);
+        matrices[18] = compute_offset_matrix(DEFAULT_LEFT_HAND, left_hand);
+        matrices[19] = compute_offset_matrix(DEFAULT_RIGHT_SHOULDER, right_shoulder);
+        matrices[20] = compute_offset_matrix(DEFAULT_RIGHT_ELBOW, right_elbow);
+        matrices[21] = compute_offset_matrix(DEFAULT_RIGHT_HAND, right_hand);
+        matrices[22] = compute_offset_matrix(DEFAULT_LEFT_HIP, left_hip);
+        matrices[23] = compute_offset_matrix(DEFAULT_LEFT_KNEE, left_knee);
+        matrices[24] = compute_offset_matrix(DEFAULT_LEFT_FOOT, left_foot);
+        matrices[25] = compute_offset_matrix(DEFAULT_RIGHT_HIP, right_hip);
+        matrices[26] = compute_offset_matrix(DEFAULT_RIGHT_KNEE, right_knee);
+        matrices[27] = compute_offset_matrix(DEFAULT_RIGHT_FOOT, right_foot);
+
+        matrices
     }
 
     /// Interpolate between two poses using spherical linear interpolation (slerp)

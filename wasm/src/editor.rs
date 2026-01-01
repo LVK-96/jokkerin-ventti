@@ -402,26 +402,35 @@ pub fn get_joint_positions(view: &[f32], proj: &[f32], width: f32, height: f32) 
     let view_proj = proj_mat * view_mat;
 
     with_session(|session| {
-        let keyframe = session.clip.keyframes.get(session.keyframe_index)?;
-        let skeleton = keyframe.pose.to_skeleton();
+        let pose = &session.clip.keyframes.get(session.keyframe_index)?.pose;
+        pose.compute_all();
+        let cache = pose.cache.borrow();
+        use crate::bone::BoneId;
+        use glam::{Vec3, Vec3A};
+
+        let hips = Vec3A::from(pose.root_position);
+        let left_hip_offset =
+            cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0);
+        let right_hip_offset =
+            cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0);
 
         let joints = [
-            skeleton.hips,
-            skeleton.neck,
-            skeleton.neck,
-            skeleton.head,
-            skeleton.left_shoulder,
-            skeleton.left_elbow,
-            skeleton.left_hand,
-            skeleton.right_shoulder,
-            skeleton.right_elbow,
-            skeleton.right_hand,
-            skeleton.left_hip,
-            skeleton.left_knee,
-            skeleton.left_foot,
-            skeleton.right_hip,
-            skeleton.right_knee,
-            skeleton.right_foot,
+            hips,                                                              // hips
+            Vec3A::from(cache.world_positions[BoneId::Spine.index()]),         // neck
+            Vec3A::from(cache.world_positions[BoneId::Spine.index()]), // neck (duplicate for some reason)
+            Vec3A::from(cache.world_positions[BoneId::Head.index()]),  // head
+            Vec3A::from(cache.world_positions[BoneId::LeftShoulder.index()]), // left_shoulder
+            Vec3A::from(cache.world_positions[BoneId::LeftUpperArm.index()]), // left_elbow
+            Vec3A::from(cache.world_positions[BoneId::LeftForearm.index()]), // left_hand
+            Vec3A::from(cache.world_positions[BoneId::RightShoulder.index()]), // right_shoulder
+            Vec3A::from(cache.world_positions[BoneId::RightUpperArm.index()]), // right_elbow
+            Vec3A::from(cache.world_positions[BoneId::RightForearm.index()]), // right_hand
+            Vec3A::from(pose.root_position + left_hip_offset),         // left_hip
+            Vec3A::from(cache.world_positions[BoneId::LeftThigh.index()]), // left_knee
+            Vec3A::from(cache.world_positions[BoneId::LeftShin.index()]), // left_foot
+            Vec3A::from(pose.root_position + right_hip_offset),        // right_hip
+            Vec3A::from(cache.world_positions[BoneId::RightThigh.index()]), // right_knee
+            Vec3A::from(cache.world_positions[BoneId::RightShin.index()]), // right_foot
         ];
 
         let mut positions = Vec::with_capacity(joints.len() * 2);

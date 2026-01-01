@@ -80,7 +80,6 @@ function handleEvents(events: WorkoutEvent[]) {
 }
 
 function tickLoop() {
-    requestWakeLock();
     const result = tick(state, exercises);
     state = result.newState;
     handleEvents(result.events);
@@ -88,6 +87,7 @@ function tickLoop() {
 }
 
 function startWorkout() {
+    requestWakeLock();
     // Reset state to initial ready state
     state = createInitialState(exercises);
 
