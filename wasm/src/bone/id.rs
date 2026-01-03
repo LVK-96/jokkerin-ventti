@@ -11,9 +11,6 @@ pub const HIP_OFFSET_X: f32 = 0.02;
 /// Hip joint offset from root in Y direction (downward, meters)
 pub const HIP_OFFSET_Y: f32 = 0.05;
 
-/// Small epsilon value for floating-point comparisons
-pub const EPSILON: f32 = 1e-6;
-
 /// Unique identifier for each bone in the skeleton.
 /// Ordered for topological traversal (parents before children).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

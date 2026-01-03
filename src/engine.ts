@@ -44,7 +44,11 @@ export class WebGPUEngine {
 
             // Handle window resize
             window.addEventListener('resize', () => {
-                this.app?.resize_surface(this.canvasId);
+                try {
+                    this.app?.resize_surface(this.canvasId);
+                } catch (e) {
+                    console.error('Resize failed:', e);
+                }
             });
 
             // Create FPS counter element

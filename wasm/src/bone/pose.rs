@@ -1,5 +1,6 @@
 use super::cache::{DirtyFlags, PoseCache};
-use super::id::{BoneId, BONE_HIERARCHY, DEFAULT_HIPS_Y, EPSILON, HIP_OFFSET_X, HIP_OFFSET_Y};
+use super::id::{BoneId, BONE_HIERARCHY, DEFAULT_HIPS_Y, HIP_OFFSET_X, HIP_OFFSET_Y};
+use crate::EPSILON;
 use glam::{Quat, Vec3, Vec3A};
 use std::cell::RefCell;
 

@@ -1,6 +1,8 @@
 use crate::bone::BoneId;
 use crate::state::App;
 use wasm_bindgen::prelude::*;
+/// Default time interval when adding keyframes
+const DEFAULT_KEYFRAME_INTERVAL: f32 = 0.5;
 
 // App methods for editor functionality
 #[wasm_bindgen]
@@ -77,7 +79,7 @@ impl App {
                 let new_time = if after_index + 1 < clip.keyframes.len() {
                     (prev_keyframe.time + clip.keyframes[after_index + 1].time) / 2.0
                 } else {
-                    prev_keyframe.time + 0.5
+                    prev_keyframe.time + DEFAULT_KEYFRAME_INTERVAL
                 };
 
                 let mut new_keyframe = prev_keyframe;
@@ -86,7 +88,7 @@ impl App {
 
                 if let Some(last) = clip.keyframes.last() {
                     if last.time > clip.duration {
-                        clip.duration = last.time + 0.5;
+                        clip.duration = last.time + DEFAULT_KEYFRAME_INTERVAL;
                     }
                 }
                 log::info!("Added keyframe at time {:.2}s", new_time);
@@ -162,8 +164,7 @@ impl App {
                     ry.to_radians(),
                     rz.to_radians(),
                 );
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
-                    .with_rotation(id, q);
+                *pose = std::mem::take(pose).with_rotation(id, q);
             }
         }
     }
@@ -180,7 +181,7 @@ impl App {
 
             if bone_index == 0 {
                 // Root position
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
+                *pose = std::mem::take(pose)
                     .with_root_position(target_pos)
                     .apply_floor_constraint();
                 return;
@@ -193,39 +194,21 @@ impl App {
 
             if !chain.is_empty() {
                 // IK
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
+                *pose = std::mem::take(pose)
                     .apply_ik(&chain, target_pos)
                     .apply_floor_constraint();
             } else {
                 // FK Logic
-                let pivot_pos =
-                    if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
-                        pose.get_position(parent)
-                    } else {
-                        pose.root_position
-                    };
-
-                let target_dir = (target_pos - pivot_pos).normalize_or_zero();
-                if target_dir.length_squared() > 1e-6 {
-                    let parent_rot = compute_world_rotation(pose, bone_id);
-                    let default_dir = crate::bone::BONE_HIERARCHY[bone_id.index()]
-                        .direction
-                        .normalize();
-                    let target_dir_local = parent_rot.inverse() * target_dir;
-                    let delta_rot = glam::Quat::from_rotation_arc(default_dir, target_dir_local);
-
-                    *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
-                        .with_rotation(bone_id, delta_rot.normalize());
-                }
+                apply_fk_to_target(pose, bone_id, target_pos);
 
                 // Apply floor constraint
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
-                    .apply_floor_constraint();
+                *pose = std::mem::take(pose).apply_floor_constraint();
             }
         }
     }
 
     /// Apply a screen-space drag to a joint
+    #[allow(clippy::too_many_arguments)]
     pub fn drag_joint(
         &mut self,
         joint_index: usize,
@@ -255,7 +238,7 @@ impl App {
                 let current_pos = pose.root_position;
                 let target_pos =
                     project_and_offset(current_pos, dx, dy, width, height, view_mat, proj_mat);
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
+                *pose = std::mem::take(pose)
                     .with_root_position(target_pos)
                     .apply_floor_constraint();
                 return;
@@ -272,30 +255,12 @@ impl App {
 
             if !chain.is_empty() {
                 // IK
-                *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
+                *pose = std::mem::take(pose)
                     .apply_ik(&chain, target_pos)
                     .apply_floor_constraint();
             } else {
                 // FK
-                let pivot_pos =
-                    if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
-                        pose.get_position(parent)
-                    } else {
-                        pose.root_position
-                    };
-
-                let target_dir = (target_pos - pivot_pos).normalize_or_zero();
-                if target_dir.length_squared() > 1e-6 {
-                    let parent_rot = compute_world_rotation(pose, bone_id);
-                    let default_dir = crate::bone::BONE_HIERARCHY[bone_id.index()]
-                        .direction
-                        .normalize();
-                    let target_dir_local = parent_rot.inverse() * target_dir;
-                    let delta_rot = glam::Quat::from_rotation_arc(default_dir, target_dir_local);
-
-                    *pose = std::mem::replace(pose, crate::bone::RotationPose::default())
-                        .with_rotation(bone_id, delta_rot.normalize());
-                }
+                apply_fk_to_target(pose, bone_id, target_pos);
             }
         }
     }
@@ -334,20 +299,20 @@ impl App {
                 let joints = [
                     hips,                                                 // hips
                     cache.world_positions[BoneId::Spine.index()],         // neck
-                    cache.world_positions[BoneId::Spine.index()], // neck (duplicate for some reason)
-                    cache.world_positions[BoneId::Head.index()],  // head
-                    cache.world_positions[BoneId::LeftShoulder.index()], // left_shoulder
-                    cache.world_positions[BoneId::LeftUpperArm.index()], // left_elbow
-                    cache.world_positions[BoneId::LeftForearm.index()], // left_hand
+                    cache.world_positions[BoneId::Neck.index()],          // neck top
+                    cache.world_positions[BoneId::Head.index()],          // head
+                    cache.world_positions[BoneId::LeftShoulder.index()],  // left_shoulder
+                    cache.world_positions[BoneId::LeftUpperArm.index()],  // left_elbow
+                    cache.world_positions[BoneId::LeftForearm.index()],   // left_hand
                     cache.world_positions[BoneId::RightShoulder.index()], // right_shoulder
                     cache.world_positions[BoneId::RightUpperArm.index()], // right_elbow
-                    cache.world_positions[BoneId::RightForearm.index()], // right_hand
-                    Vec3A::from(pose.root_position + left_hip_offset), // left_hip
-                    cache.world_positions[BoneId::LeftThigh.index()], // left_knee
-                    cache.world_positions[BoneId::LeftShin.index()], // left_foot
-                    Vec3A::from(pose.root_position + right_hip_offset), // right_hip
-                    cache.world_positions[BoneId::RightThigh.index()], // right_knee
-                    cache.world_positions[BoneId::RightShin.index()], // right_foot
+                    cache.world_positions[BoneId::RightForearm.index()],  // right_hand
+                    Vec3A::from(pose.root_position + left_hip_offset),    // left_hip
+                    cache.world_positions[BoneId::LeftThigh.index()],     // left_knee
+                    cache.world_positions[BoneId::LeftShin.index()],      // left_foot
+                    Vec3A::from(pose.root_position + right_hip_offset),   // right_hip
+                    cache.world_positions[BoneId::RightThigh.index()],    // right_knee
+                    cache.world_positions[BoneId::RightShin.index()],     // right_foot
                 ];
 
                 let mut positions = Vec::with_capacity(joints.len() * 2);
@@ -385,6 +350,30 @@ pub struct JointInfo {
 }
 
 // Helper functions (not exported to JS)
+
+/// Apply FK rotation to point bone toward target direction
+fn apply_fk_to_target(
+    pose: &mut crate::bone::RotationPose,
+    bone_id: BoneId,
+    target_pos: glam::Vec3,
+) {
+    let pivot_pos = if let Some(parent) = crate::bone::BONE_HIERARCHY[bone_id.index()].parent {
+        pose.get_position(parent)
+    } else {
+        pose.root_position
+    };
+    let target_dir = (target_pos - pivot_pos).normalize_or_zero();
+    if target_dir.length_squared() > crate::EPSILON {
+        let parent_rot = compute_world_rotation(pose, bone_id);
+        let default_dir = crate::bone::BONE_HIERARCHY[bone_id.index()]
+            .direction
+            .normalize();
+        let target_dir_local = parent_rot.inverse() * target_dir;
+        let delta_rot = glam::Quat::from_rotation_arc(default_dir, target_dir_local);
+
+        *pose = std::mem::take(pose).with_rotation(bone_id, delta_rot.normalize());
+    }
+}
 
 fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
     match joint_index {

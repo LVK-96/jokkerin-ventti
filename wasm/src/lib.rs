@@ -30,6 +30,9 @@ pub use bench::run_benchmarks;
 
 pub use glam::Vec3;
 
+/// Global epsilon for float comparisons
+pub const EPSILON: f32 = 1e-6;
+
 // Re-exports for WASM API
 #[cfg(target_arch = "wasm32")]
 pub use gpu::init_gpu;
@@ -102,10 +105,4 @@ pub fn log(msg: &str) {
 #[wasm_bindgen]
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
-}
-
-#[cfg(test)]
-mod tests {
-    use wasm_bindgen_test::*;
-    wasm_bindgen_test_configure!(run_in_browser);
 }

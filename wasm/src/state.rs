@@ -36,7 +36,7 @@ pub struct AppState {
 
 impl AppState {
     /// Create new application state with initialized GPU context
-    /// GpuContext is initialized sepately and passed here
+    /// GpuContext is initialized separately and passed here
     pub fn new(gpu: GpuContext) -> Self {
         Self {
             gpu,

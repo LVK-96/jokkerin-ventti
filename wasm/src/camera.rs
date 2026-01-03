@@ -63,7 +63,7 @@ impl Camera {
         let new_dir = new_orientation * forward;
         let up_dot = new_dir.y;
 
-        if up_dot >= MIN_UP_DOT && up_dot <= MAX_UP_DOT {
+        if (MIN_UP_DOT..=MAX_UP_DOT).contains(&up_dot) {
             Camera {
                 orientation: new_orientation,
                 ..self

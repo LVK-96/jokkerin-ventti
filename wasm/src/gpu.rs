@@ -471,14 +471,16 @@ use crate::state::App;
 impl App {
     /// Resize the WebGPU surface when canvas size changes
     /// Call this from a window resize event listener
-    pub fn resize_surface(&mut self, canvas_id: String) {
-        let window = web_sys::window().expect("No window");
-        let document = window.document().expect("No document");
+    pub fn resize_surface(&mut self, canvas_id: String) -> Result<(), JsValue> {
+        let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+        let document = window
+            .document()
+            .ok_or_else(|| JsValue::from_str("No document"))?;
         let canvas = document
             .get_element_by_id(&canvas_id)
-            .expect("Canvas not found")
+            .ok_or_else(|| JsValue::from_str("Canvas not found"))?
             .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("Not a canvas");
+            .map_err(|_| JsValue::from_str("Not a canvas"))?;
 
         let (width, height) = get_canvas_size(&window, &canvas);
         canvas.set_width(width);
@@ -526,6 +528,7 @@ impl App {
         );
 
         log::info!("Resized to {}x{}", width, height);
+        Ok(())
     }
 
     /// Sync camera state to GPU - updates view matrix from stored quaternion
@@ -570,7 +573,10 @@ impl App {
         let gpu = &self.state.gpu;
         let output = match gpu.surface.get_current_texture() {
             Ok(t) => t,
-            Err(_) => return, // Surface lost
+            Err(e) => {
+                log::warn!("Surface lost: {:?}", e);
+                return;
+            }
         };
 
         let view = output

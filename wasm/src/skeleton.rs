@@ -19,11 +19,17 @@ pub const HEAD_RADIUS: f32 = 0.12;
 pub const JOINT_RADIUS: f32 = 0.05;
 
 /// Vertex format for skinned mesh
+/// Vertex format for GPU-skinned mesh rendering
+///
+/// Each vertex is transformed by a bone matrix indexed by `bone_index`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SkinnedVertex {
+    /// Local position relative to bone origin
     pub position: [f32; 3],
+    /// Surface normal for lighting
     pub normal: [f32; 3],
+    /// Index into bone matrix array (0-28)
     pub bone_index: u32,
 }
 
