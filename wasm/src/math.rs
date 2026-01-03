@@ -107,15 +107,7 @@ impl Mat4Extended for Mat4 {
 
     #[inline(always)]
     fn multiply_fast(&self, other: &Mat4) -> Mat4 {
-        cfg_if::cfg_if! {
-            if #[cfg(all(target_arch = "wasm32", target_feature = "relaxed-simd"))] {
-                self.multiply_relaxed_simd(other)
-            } else if #[cfg(feature = "portable_simd")] {
-                self.multiply_std_simd(other)
-            } else {
-                *self * *other
-            }
-        }
+        *self * *other
     }
 
     fn transpose_scalar(&self) -> Mat4 {

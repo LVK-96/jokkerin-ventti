@@ -369,10 +369,9 @@ pub fn compute_aligned_matrix(
     let b_dir = (b_end - b_start).normalize();
     let c_dir = (c_end - c_start).normalize();
     let rot = glam::Quat::from_rotation_arc(Vec3::from(b_dir), Vec3::from(c_dir));
-    use crate::math::Mat4Extended;
     glam::Mat4::from_translation(Vec3::from(c_start))
-        .multiply_fast(&glam::Mat4::from_quat(rot))
-        .multiply_fast(&glam::Mat4::from_translation(-Vec3::from(b_start)))
+        * glam::Mat4::from_quat(rot)
+        * glam::Mat4::from_translation(-Vec3::from(b_start))
 }
 
 pub fn compute_offset_matrix(b_center: Vec3A, c_center: Vec3A) -> glam::Mat4 {

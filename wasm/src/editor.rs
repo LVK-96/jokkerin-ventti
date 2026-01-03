@@ -279,8 +279,7 @@ impl App {
 
         let view_mat = glam::Mat4::from_cols_array(view.try_into().unwrap());
         let proj_mat = glam::Mat4::from_cols_array(proj.try_into().unwrap());
-        use crate::math::Mat4Extended;
-        let view_proj = proj_mat.multiply_fast(&view_mat);
+        let view_proj = proj_mat * view_mat;
 
         self.state
             .editor()
@@ -444,8 +443,7 @@ fn project_and_offset(
     view: glam::Mat4,
     proj: glam::Mat4,
 ) -> glam::Vec3 {
-    use crate::math::Mat4Extended;
-    let view_proj = proj.multiply_fast(&view);
+    let view_proj = proj * view;
     let ndc_pos = view_proj.project_point3(pos);
     let screen_x = (ndc_pos.x + 1.0) * 0.5 * width;
     let screen_y = (1.0 - ndc_pos.y) * 0.5 * height;
