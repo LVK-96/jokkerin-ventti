@@ -10,6 +10,9 @@ export default defineConfig({
         strictPort: true,
         fs: {
             allow: ['.']
+        },
+        headers: {
+            'Permissions-Policy': 'interest-cohort=()'
         }
     },
 
