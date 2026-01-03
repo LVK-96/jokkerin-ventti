@@ -15,7 +15,7 @@ pub trait Mat4Extended {
     fn multiply_relaxed_simd(&self, other: &Mat4) -> Mat4;
 
     /// Dispatcher for the best available handwritten multiplication kernel
-    fn multiply_handwritten(&self, other: &Mat4) -> Mat4;
+    fn multiply_fast(&self, other: &Mat4) -> Mat4;
 
     /// Scalar implementation of matrix transpose
     fn transpose_scalar(&self) -> Mat4;
@@ -29,7 +29,7 @@ pub trait Mat4Extended {
     fn transpose_relaxed_simd(&self) -> Mat4;
 
     /// Dispatcher for the best available handwritten transpose kernel
-    fn transpose_handwritten(&self) -> Mat4;
+    fn transpose_fast(&self) -> Mat4;
 }
 
 impl Mat4Extended for Mat4 {
@@ -106,14 +106,14 @@ impl Mat4Extended for Mat4 {
     }
 
     #[inline(always)]
-    fn multiply_handwritten(&self, other: &Mat4) -> Mat4 {
+    fn multiply_fast(&self, other: &Mat4) -> Mat4 {
         cfg_if::cfg_if! {
             if #[cfg(all(target_arch = "wasm32", target_feature = "relaxed-simd"))] {
                 self.multiply_relaxed_simd(other)
             } else if #[cfg(feature = "portable_simd")] {
                 self.multiply_std_simd(other)
             } else {
-                self.multiply_scalar(other)
+                *self * *other
             }
         }
     }
@@ -186,16 +186,9 @@ impl Mat4Extended for Mat4 {
     }
 
     #[inline(always)]
-    fn transpose_handwritten(&self) -> Mat4 {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "portable_simd")] {
-                self.transpose_std_simd()
-            } else if #[cfg(all(target_arch = "wasm32", target_feature = "relaxed-simd"))] {
-                self.transpose_relaxed_simd()
-            } else {
-                self.transpose_scalar()
-            }
-        }
+    fn transpose_fast(&self) -> Mat4 {
+        // All the transposes are just as fast, lets just use the transpose from glam
+        self.transpose()
     }
 }
 
@@ -229,43 +222,43 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn test_handwritten_identity_transpose() {
+    fn test_fast_identity_transpose() {
         let mat = Mat4::IDENTITY;
-        let transposed = mat.transpose_handwritten();
+        let transposed = mat.transpose_fast();
         assert_matrix_approx_eq(mat, transposed);
     }
 
     #[wasm_bindgen_test]
-    fn test_handwritten_transpose() {
+    fn test_fast_transpose() {
         let mut rng = rand::rng();
         for _ in 0..100 {
-            // Generate 100 random matrices, transpose them with both glam and handwritten kernels and compare the results
+            // Generate 100 random matrices, transpose them with both glam and fast kernels and compare the results
             let mat = Mat4::from_cols_array(&rng.random::<[f32; 16]>());
-            let transposed_handwritten = mat.transpose_handwritten();
+            let transposed_fast = mat.transpose_fast();
             let transposed_glam = mat.transpose();
-            assert_matrix_approx_eq(transposed_handwritten, transposed_glam);
+            assert_matrix_approx_eq(transposed_fast, transposed_glam);
         }
     }
 
     #[wasm_bindgen_test]
-    fn test_handwritten_identity_multiply() {
+    fn test_fast_identity_multiply() {
         let a = Mat4::from_cols_array(&[1.0; 16]);
         let b = Mat4::IDENTITY;
-        let multiplied = a.multiply_handwritten(&b);
+        let multiplied = a.multiply_fast(&b);
         assert_matrix_approx_eq(a, multiplied);
     }
 
     #[wasm_bindgen_test]
-    fn test_handwritten_multiply() {
+    fn test_fast_multiply() {
         let mut rng = rand::rng();
         for _ in 0..100 {
             // Generate 100 random matrix pairs
             // Multiply them with both glam and
-            // handwritten kernels and compare the results
+            // fast kernels and compare the results
             let mat = Mat4::from_cols_array(&rng.random::<[f32; 16]>());
-            let multiplied_handwritten = mat.multiply_handwritten(&mat);
+            let multiplied_fast = mat.multiply_fast(&mat);
             let multiplied_glam = mat * mat;
-            assert_matrix_approx_eq(multiplied_handwritten, multiplied_glam);
+            assert_matrix_approx_eq(multiplied_fast, multiplied_glam);
         }
     }
 }
