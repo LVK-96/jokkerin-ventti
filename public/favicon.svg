@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Sky (Gradient) -->
+  <defs>
+    <linearGradient id="skyGradient" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#87CEEB"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="100" height="30" fill="url(#skyGradient)"/>
+
+  <!-- Floor (White) -->
+  <rect x="0" y="30" width="100" height="70" fill="white"/>
+
+  <!-- Grid (Gray #B3B3B3) -->
+  <g stroke="#B3B3B3" stroke-width="1">
+    <!-- Perspective Lines (Verticals) -->
+    <!-- Vanishing point roughly at (50, 30) -->
+    <line x1="50" y1="30" x2="-50" y2="100" opacity="0.5"/>
+    <line x1="50" y1="30" x2="0" y2="100" />
+    <line x1="50" y1="30" x2="25" y2="100" />
+    <line x1="50" y1="30" x2="50" y2="100" />
+    <line x1="50" y1="30" x2="75" y2="100" />
+    <line x1="50" y1="30" x2="100" y2="100" />
+    <line x1="50" y1="30" x2="150" y2="100" opacity="0.5"/>
+
+    <!-- Horizontal Lines (Exponential density) -->
+    <line x1="0" y1="35" x2="100" y2="35" stroke-width="0.5"/>
+    <line x1="0" y1="42" x2="100" y2="42" stroke-width="0.7"/>
+    <line x1="0" y1="52" x2="100" y2="52" stroke-width="0.9"/>
+    <line x1="0" y1="65" x2="100" y2="65" stroke-width="1.2"/>
+    <line x1="0" y1="82" x2="100" y2="82" stroke-width="1.5"/>
+  </g>
+
+  <!-- Stickman (Black #000000) -->
+  <!-- Head -->
+  <circle cx="50" cy="35" r="10" fill="black" />
+  <!-- Body -->
+  <line x1="50" y1="35" x2="50" y2="70" stroke="black" stroke-width="6" stroke-linecap="round" />
+  <!-- Arms (Jumping Jack) -->
+  <line x1="50" y1="48" x2="20" y2="30" stroke="black" stroke-width="6" stroke-linecap="round" />
+  <line x1="50" y1="48" x2="80" y2="30" stroke="black" stroke-width="6" stroke-linecap="round" />
+  <!-- Legs (Jumping Jack) -->
+  <line x1="50" y1="70" x2="25" y2="95" stroke="black" stroke-width="6" stroke-linecap="round" />
+  <line x1="50" y1="70" x2="75" y2="95" stroke="black" stroke-width="6" stroke-linecap="round" />
+</svg>
