@@ -60,6 +60,9 @@ export function initCameraControls(canvas: HTMLCanvasElement, wasmApp: App): voi
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointerleave', onPointerUp);
+    canvas.addEventListener('pointercancel', (e) => {
+        onPointerUp(e);
+    });
 
     // Apply initial camera position (state initialized in Rust)
     app.sync_camera();
@@ -92,6 +95,16 @@ export function updateCameraFromInput(): void {
         changed = true;
     }
 
+    // Apply Joystick Velocity (Touch)
+    if (rotationVelocityX !== 0) {
+        app.rotate_camera(0, 1, 0, rotationVelocityX);
+        changed = true;
+    }
+    if (rotationVelocityY !== 0) {
+        app.rotate_camera(1, 0, 0, rotationVelocityY);
+        changed = true;
+    }
+
     if (changed) {
         app.sync_camera();
     }
@@ -111,38 +124,70 @@ function onKeyUp(e: KeyboardEvent): void {
     keysPressed.delete(e.key);
 }
 
+// Joystick state for touch
+let touchStartX = 0;
+let touchStartY = 0;
+let rotationVelocityX = 0;
+let rotationVelocityY = 0;
+
+// Config
+const JOYSTICK_SENSITIVITY = 0.0002;
+const DEADZONE = 10;
+
 function onPointerDown(e: PointerEvent): void {
     if (!cameraEnabled) return;
+
     isDragging = true;
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    if (e.pointerType === 'touch') {
+        touchStartX = e.clientX;
+        touchStartY = e.clientY;
+        rotationVelocityX = 0;
+        rotationVelocityY = 0;
+    } else {
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+    }
 }
 
 function onPointerMove(e: PointerEvent): void {
     if (!isDragging || !app) return;
 
-    const deltaX = e.clientX - lastMouseX;
-    const deltaY = e.clientY - lastMouseY;
+    if (e.pointerType === 'touch') {
+        // Joystick Logic
+        const dx = e.clientX - touchStartX;
+        const dy = e.clientY - touchStartY;
 
-    // Horizontal drag: rotate around world Y axis
-    if (Math.abs(deltaX) > 0) {
-        app.rotate_camera(0, 1, 0, deltaX * MOUSE_SENSITIVITY);
+        rotationVelocityX = (Math.abs(dx) > DEADZONE)
+            ? (dx - Math.sign(dx) * DEADZONE) * JOYSTICK_SENSITIVITY
+            : 0;
+
+        rotationVelocityY = (Math.abs(dy) > DEADZONE)
+            ? (dy - Math.sign(dy) * DEADZONE) * JOYSTICK_SENSITIVITY
+            : 0;
+    } else {
+        // Standard Mouse Drag (1:1)
+        const deltaX = e.clientX - lastMouseX;
+        const deltaY = e.clientY - lastMouseY;
+
+        if (Math.abs(deltaX) > 0) {
+            app.rotate_camera(0, 1, 0, deltaX * MOUSE_SENSITIVITY);
+        }
+        if (Math.abs(deltaY) > 0) {
+            app.rotate_camera(1, 0, 0, deltaY * MOUSE_SENSITIVITY);
+        }
+
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        app.sync_camera();
     }
-
-    // Vertical drag: rotate around world X axis
-    if (Math.abs(deltaY) > 0) {
-        app.rotate_camera(1, 0, 0, deltaY * MOUSE_SENSITIVITY);
-    }
-
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-
-    app.sync_camera();
 }
 
 function onPointerUp(e: PointerEvent): void {
     isDragging = false;
+    rotationVelocityX = 0;
+    rotationVelocityY = 0;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
 }
 
