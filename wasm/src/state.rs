@@ -9,8 +9,6 @@
 //! - Unit testing of core logic without global state
 //! - Clear dependency graphs
 
-use std::cell::RefCell;
-
 use crate::animation::{AnimationLibrary, PlaybackState};
 use crate::camera::Camera;
 use crate::gpu::GpuContext;
@@ -73,42 +71,25 @@ impl AppState {
     }
 }
 
-// Global state access, thin wrapper for WASM bindings only
-thread_local! {
-    static APP_STATE: RefCell<Option<AppState>> = const { RefCell::new(None) };
+use wasm_bindgen::prelude::*;
+
+/// JavaScript-owned application handle.
+///
+/// This struct wraps `AppState` and is the primary interface for JavaScript.
+/// JavaScript creates this via `App::new()` and calls methods on it.
+#[wasm_bindgen]
+pub struct App {
+    pub(crate) state: AppState,
 }
 
-/// Execute a closure with immutable access to AppState
-///
-/// Returns None if AppState is not initialized
-pub fn with_app_state<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&AppState) -> R,
-{
-    APP_STATE.with(|state| {
-        let borrowed = state.borrow();
-        borrowed.as_ref().map(f)
-    })
-}
+impl App {
+    /// Get immutable access to the internal state
+    pub fn state(&self) -> &AppState {
+        &self.state
+    }
 
-/// Execute a closure with mutable access to AppState
-///
-/// Returns None if AppState is not initialized
-pub fn with_app_state_mut<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut AppState) -> R,
-{
-    APP_STATE.with(|state| {
-        let mut borrowed = state.borrow_mut();
-        borrowed.as_mut().map(f)
-    })
-}
-
-/// Initialize the global AppState with a GpuContext
-///
-/// Called once during init_gpu()
-pub fn initialize_app_state(gpu: GpuContext) {
-    APP_STATE.with(|state| {
-        *state.borrow_mut() = Some(AppState::new(gpu));
-    });
+    /// Get mutable access to the internal state
+    pub fn state_mut(&mut self) -> &mut AppState {
+        &mut self.state
+    }
 }

@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 use wgpu::util::DeviceExt;
 
-use crate::skeleton::{RENDER_BONE_COUNT, SkinnedVertex, generate_bind_pose_mesh};
+use crate::skeleton::{generate_bind_pose_mesh, SkinnedVertex, RENDER_BONE_COUNT};
 
 // Shared background/sky color
 const SKY_COLOR: wgpu::Color = wgpu::Color {
@@ -77,9 +77,9 @@ fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement
 
 /// Initialize WebGPU context from a canvas element
 /// wasm_bindgen + pub async fn
-/// -> Generates a promies for JS
+/// -> Generates a promise for JS, returns App instance owned by JavaScript
 #[wasm_bindgen]
-pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
+pub async fn init_gpu(canvas_id: String) -> Result<crate::state::App, JsValue> {
     // Set up panic hook for better error messages in browser console
     console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Info).ok();
@@ -438,7 +438,7 @@ pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
     // Update uniform buffer
     queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-    let state = GpuContext {
+    let gpu = GpuContext {
         device,
         queue,
         surface,
@@ -456,31 +456,35 @@ pub async fn init_gpu(canvas_id: String) -> Result<(), JsValue> {
         vertex_count,
     };
 
-    // Initialize centralized AppState with GPU context
-    crate::state::initialize_app_state(state);
+    // Return App instance owned by JavaScript
+    let app = crate::state::App {
+        state: crate::state::AppState::new(gpu),
+    };
 
     log::info!("WebGPU initialized with skeleton pipeline!");
-    Ok(())
+    Ok(app)
 }
+// App methods for GPU operations
+use crate::state::App;
 
-/// Resize the WebGPU surface when canvas size changes
-/// Call this from a window resize event listener
 #[wasm_bindgen]
-pub fn resize_surface(canvas_id: String) {
-    let window = web_sys::window().expect("No window");
-    let document = window.document().expect("No document");
-    let canvas = document
-        .get_element_by_id(&canvas_id)
-        .expect("Canvas not found")
-        .dyn_into::<web_sys::HtmlCanvasElement>()
-        .expect("Not a canvas");
+impl App {
+    /// Resize the WebGPU surface when canvas size changes
+    /// Call this from a window resize event listener
+    pub fn resize_surface(&mut self, canvas_id: String) {
+        let window = web_sys::window().expect("No window");
+        let document = window.document().expect("No document");
+        let canvas = document
+            .get_element_by_id(&canvas_id)
+            .expect("Canvas not found")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("Not a canvas");
 
-    let (width, height) = get_canvas_size(&window, &canvas);
-    canvas.set_width(width);
-    canvas.set_height(height);
+        let (width, height) = get_canvas_size(&window, &canvas);
+        canvas.set_width(width);
+        canvas.set_height(height);
 
-    crate::state::with_app_state_mut(|app| {
-        let gpu = &mut app.gpu;
+        let gpu = &mut self.state.gpu;
         // Update surface configuration
         gpu.config.width = width;
         gpu.config.height = height;
@@ -522,72 +526,48 @@ pub fn resize_surface(canvas_id: String) {
         );
 
         log::info!("Resized to {}x{}", width, height);
-    });
-}
+    }
 
-/// Sync camera state to GPU - updates view matrix from stored quaternion
-///
-/// Call this after rotate_camera() to push the updated view matrix to the GPU.
-#[wasm_bindgen]
-pub fn sync_camera() {
-    crate::state::with_app_state_mut(|app| {
-        let view = app.camera.view_matrix();
-        app.gpu.uniforms.view = view.to_cols_array_2d();
-        app.gpu.queue.write_buffer(
-            &app.gpu.uniform_buffer,
+    /// Sync camera state to GPU - updates view matrix from stored quaternion
+    ///
+    /// Call this after rotate_camera() to push the updated view matrix to the GPU.
+    pub fn sync_camera(&mut self) {
+        let view = self.state.camera.view_matrix();
+        self.state.gpu.uniforms.view = view.to_cols_array_2d();
+        self.state.gpu.queue.write_buffer(
+            &self.state.gpu.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[app.gpu.uniforms]),
+            bytemuck::cast_slice(&[self.state.gpu.uniforms]),
         );
-    });
-}
+    }
 
-/// Get the current camera view matrix as a Float32Array (16 floats, column-major)
-/// Used by TypeScript for gizmo rendering
-#[wasm_bindgen]
-pub fn get_current_view_matrix() -> Vec<f32> {
-    crate::state::with_app_state(|app| {
-        app.gpu
+    /// Get the current camera view matrix as a Float32Array (16 floats, column-major)
+    /// Used by TypeScript for gizmo rendering
+    pub fn get_current_view_matrix(&self) -> Vec<f32> {
+        self.state
+            .gpu
             .uniforms
             .view
             .iter()
             .flat_map(|row| row.iter().copied())
             .collect()
-    })
-    .unwrap_or_else(|| vec![0.0; 16])
-}
+    }
 
-/// Get the current projection matrix
-/// Used by TypeScript for handle-based joint positioning
-#[wasm_bindgen]
-pub fn get_current_projection_matrix() -> Vec<f32> {
-    crate::state::with_app_state(|app| {
-        app.gpu
+    /// Get the current projection matrix
+    /// Used by TypeScript for handle-based joint positioning
+    pub fn get_current_projection_matrix(&self) -> Vec<f32> {
+        self.state
+            .gpu
             .uniforms
             .projection
             .iter()
             .flat_map(|row| row.iter().copied())
             .collect()
-    })
-    .unwrap_or_else(|| vec![0.0; 16])
-}
+    }
 
-/// Update bone matrices uniform buffer
-/// Call this to push new skeleton pose to the GPU
-pub fn update_bone_uniforms(matrices: &[glam::Mat4]) {
-    crate::state::with_app_state_mut(|app| {
-        app.gpu.queue.write_buffer(
-            &app.gpu.bone_uniform_buffer,
-            0,
-            bytemuck::cast_slice(matrices),
-        );
-    });
-}
-
-/// Render a frame
-#[wasm_bindgen]
-pub fn render_frame() {
-    crate::state::with_app_state(|app| {
-        let gpu = &app.gpu;
+    /// Render a frame
+    pub fn render_frame(&self) {
+        let gpu = &self.state.gpu;
         let output = match gpu.surface.get_current_texture() {
             Ok(t) => t,
             Err(_) => return, // Surface lost
@@ -645,5 +625,18 @@ pub fn render_frame() {
 
         gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-    });
+    }
+}
+
+// Internal App methods (not exported to JavaScript)
+impl App {
+    /// Update bone matrices uniform buffer
+    /// Call this to push new skeleton pose to the GPU
+    pub fn update_bone_uniforms(&self, matrices: &[glam::Mat4]) {
+        self.state.gpu.queue.write_buffer(
+            &self.state.gpu.bone_uniform_buffer,
+            0,
+            bytemuck::cast_slice(matrices),
+        );
+    }
 }

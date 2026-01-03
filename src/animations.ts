@@ -44,10 +44,23 @@ sortedPaths.forEach((path, index) => {
     LOOKUP_MAP[displayName] = id;
     LOOKUP_MAP[displayName.toLowerCase()] = id;
     LOOKUP_MAP[filename] = id; // Also map exact filename just in case
+
+    // 4. Robust Lookup (Slug)
+    // Matches "Push-Ups" -> "pushups" and "Push Ups" -> "pushups"
+    const slug = displayName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    LOOKUP_MAP[slug] = id;
 });
 
 export function resolveAnimationId(name: string): AnimationId | undefined {
-    return LOOKUP_MAP[name] as AnimationId | undefined;
+    // Try exact match first
+    if (LOOKUP_MAP[name] !== undefined) return LOOKUP_MAP[name] as AnimationId;
+
+    // Try lower case
+    if (LOOKUP_MAP[name.toLowerCase()] !== undefined) return LOOKUP_MAP[name.toLowerCase()] as AnimationId;
+
+    // Try slug
+    const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return LOOKUP_MAP[slug] as AnimationId | undefined;
 }
 
 // Logs for debugging

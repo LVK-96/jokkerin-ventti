@@ -12,6 +12,8 @@ pub mod camera;
 
 #[cfg(target_arch = "wasm32")]
 pub mod editor;
+#[cfg(test)]
+pub mod generator;
 #[cfg(target_arch = "wasm32")]
 pub mod gpu;
 pub mod ik;
@@ -26,31 +28,18 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 pub use bench::run_benchmarks;
 
+pub use glam::Vec3;
+
 // Re-exports for WASM API
 #[cfg(target_arch = "wasm32")]
-pub use camera::{get_camera_right_axis, rotate_camera, update_camera};
-
+pub use gpu::init_gpu;
 #[cfg(target_arch = "wasm32")]
-pub use animation::{advance_time, load_animation, set_exercise};
-
-// Editor functions (singleton session)
-#[cfg(target_arch = "wasm32")]
-pub use editor::{
-    JointInfo, add_keyframe, delete_keyframe, drag_joint, export_clip_json, get_bone_info,
-    get_joint_positions, get_keyframe_count, get_keyframe_index, get_keyframe_time, is_editing,
-    set_bone_position, set_bone_rotation, set_keyframe_index, start_editing, stop_editing,
-};
-pub use glam::Vec3;
-#[cfg(target_arch = "wasm32")]
-pub use gpu::{
-    get_current_projection_matrix, get_current_view_matrix, init_gpu, render_frame, resize_surface,
-    sync_camera,
-};
+pub use state::App;
 
 pub use math::Mat4;
 pub use math::Mat4Extended;
 
-use crate::animation::{AnimationLibrary, PlaybackState, sample_animation};
+use crate::animation::{sample_animation, AnimationLibrary, PlaybackState};
 #[cfg(target_arch = "wasm32")]
 use crate::bone::RotationPose;
 use crate::skeleton::RENDER_BONE_COUNT;
@@ -81,36 +70,25 @@ pub fn compute_matrices_from_playback(
     pose.compute_bone_matrices()
 }
 
-/// Update skeleton from the active editor session
-/// Call this every frame before render_frame() when editing
+// App methods for skeleton updates
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn update_skeleton_from_session() {
-    use crate::state::with_app_state;
-
-    let matrices = with_app_state(|app| {
-        app.editor()
-            .map(|session| compute_matrices_from_session(session))
-    })
-    .flatten();
-
-    if let Some(matrices) = matrices {
-        gpu::update_bone_uniforms(&matrices);
+impl App {
+    /// Update skeleton from the active editor session
+    /// Call this every frame before render_frame() when editing
+    pub fn update_skeleton_from_session(&self) {
+        if let Some(session) = self.state.editor() {
+            let matrices = compute_matrices_from_session(session);
+            self.update_bone_uniforms(&matrices);
+        }
     }
-}
 
-/// Update skeleton from the current animation playback state
-/// Call this every frame before render_frame() for non-editor mode
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn update_skeleton_from_playback() {
-    use crate::state::with_app_state;
-
-    let matrices =
-        with_app_state(|app| compute_matrices_from_playback(&app.animation_library, &app.playback));
-
-    if let Some(matrices) = matrices {
-        gpu::update_bone_uniforms(&matrices);
+    /// Update skeleton from the current animation playback state
+    /// Call this every frame before render_frame() for non-editor mode
+    pub fn update_skeleton_from_playback(&self) {
+        let matrices =
+            compute_matrices_from_playback(&self.state.animation_library, &self.state.playback);
+        self.update_bone_uniforms(&matrices);
     }
 }
 

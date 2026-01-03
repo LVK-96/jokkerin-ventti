@@ -164,49 +164,44 @@ mod tests {
     }
 }
 
-/// Update camera from spherical coordinates (orbit camera)
-/// azimuth: horizontal angle in radians (0 = front, PI/2 = right side)
-/// elevation: vertical angle in radians (0 = level, PI/2 = top-down)
-/// distance: distance from target point
+// App methods for camera control
+#[cfg(target_arch = "wasm32")]
+use crate::state::App;
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn update_camera(azimuth: f32, elevation: f32, distance: f32) {
-    // Convert spherical to quaternion
-    let yaw_quat = Quat::from_rotation_y(azimuth);
-    let pitch_quat = Quat::from_rotation_x(elevation);
-    let orientation = (yaw_quat * pitch_quat).normalize();
+impl App {
+    /// Update camera from spherical coordinates (orbit camera)
+    /// azimuth: horizontal angle in radians (0 = front, PI/2 = right side)
+    /// elevation: vertical angle in radians (0 = level, PI/2 = top-down)
+    /// distance: distance from target point
+    pub fn update_camera(&mut self, azimuth: f32, elevation: f32, distance: f32) {
+        // Convert spherical to quaternion
+        let yaw_quat = Quat::from_rotation_y(azimuth);
+        let pitch_quat = Quat::from_rotation_x(elevation);
+        let orientation = (yaw_quat * pitch_quat).normalize();
 
-    let camera = Camera {
-        orientation,
-        distance,
-    };
+        self.state.camera = Camera {
+            orientation,
+            distance,
+        };
+    }
 
-    crate::state::with_app_state_mut(|app| {
-        app.camera = camera;
-    });
-}
-
-/// Apply a rotation to the camera around a world-space axis
-///
-/// Rotates the camera's stored quaternion orientation incrementally.
-/// Clamps elevation to prevent going under floor or directly overhead.
-///
-/// # Arguments
-/// * `axis_x, axis_y, axis_z` - World-space axis to rotate around (should be normalized)
-/// * `angle` - Rotation angle in radians
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn rotate_camera(axis_x: f32, axis_y: f32, axis_z: f32, angle: f32) {
-    crate::state::with_app_state_mut(|app| {
+    /// Apply a rotation to the camera around a world-space axis
+    ///
+    /// Rotates the camera's stored quaternion orientation incrementally.
+    /// Clamps elevation to prevent going under floor or directly overhead.
+    ///
+    /// # Arguments
+    /// * `axis_x, axis_y, axis_z` - World-space axis to rotate around (should be normalized)
+    /// * `angle` - Rotation angle in radians
+    pub fn rotate_camera(&mut self, axis_x: f32, axis_y: f32, axis_z: f32, angle: f32) {
         let axis = Vec3::new(axis_x, axis_y, axis_z);
-        app.camera = app.camera.with_rotation(axis, angle);
-    });
-}
+        self.state.camera = self.state.camera.with_rotation(axis, angle);
+    }
 
-/// Get the camera's right axis (for vertical input rotation)
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn get_camera_right_axis() -> Vec<f32> {
-    crate::state::with_app_state(|app| app.camera.right_axis().to_array().to_vec())
-        .unwrap_or_else(|| vec![1.0, 0.0, 0.0])
+    /// Get the camera's right axis (for vertical input rotation)
+    pub fn get_camera_right_axis(&self) -> Vec<f32> {
+        self.state.camera.right_axis().to_array().to_vec()
+    }
 }

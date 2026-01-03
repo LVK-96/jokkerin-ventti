@@ -134,65 +134,46 @@ mod tests {
     }
 }
 
-/// Set the current exercise for animation
+// App methods for animation
+#[cfg(target_arch = "wasm32")]
+use crate::state::App;
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn set_exercise(id: AnimationId) {
-    crate::state::with_app_state_mut(|app| {
-        app.playback = app.playback.clone().set_exercise(id);
+impl App {
+    /// Set the current exercise for animation
+    pub fn set_exercise(&mut self, id: AnimationId) {
+        self.state.playback = self.state.playback.clone().set_exercise(id);
         log::info!("Exercise set to: {:?}", id);
-    });
-}
-
-/// Helper for logging
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
-/// Load an animation clip from JSON string
-/// Call this during startup for each exercise you want to animate
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn load_animation(id: AnimationId, json_data: String) -> Result<(), JsValue> {
-    // Parse into a generic Value first to check the version
-    let v: serde_json::Value = serde_json::from_str(&json_data)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
-
-    // Check version
-    let is_v2 = v.get("version").and_then(|val| val.as_u64()) == Some(2);
-
-    if is_v2 {
-        // Version 2: Rotation-based animation
-        // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
-        let clip = RotationAnimationClip::from_json(&json_data)
-            .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
-
-        // We don't rely on clip name anymore, but might keep it for debugging
-        // clip.name = name_override.clone();
-
-        // Store in AnimationLibrary via AppState
-        crate::state::with_app_state_mut(|app| {
-            app.animation_library.add_clip(id, clip);
-        });
-
-        // log::info!("Loaded animation (v2): {:?}", id);
-    } else {
-        return Err(JsValue::from_str("Only version 2 animations are supported"));
     }
 
-    Ok(())
-}
+    /// Load an animation clip from JSON string
+    /// Call this during startup for each exercise you want to animate
+    pub fn load_animation(&mut self, id: AnimationId, json_data: String) -> Result<(), JsValue> {
+        // Parse into a generic Value first to check the version
+        let v: serde_json::Value = serde_json::from_str(&json_data)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
 
-/// Advance simulation time (call each frame with delta time)
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn advance_time(delta_ms: f32) {
-    let delta_secs = delta_ms / 1000.0;
+        // Check version
+        let is_v2 = v.get("version").and_then(|val| val.as_u64()) == Some(2);
 
-    // Update playback state time (for animation sampling)
-    crate::state::with_app_state_mut(|app| {
-        app.playback.time += delta_secs;
-    });
+        if is_v2 {
+            // Version 2: Rotation-based animation
+            // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
+            let clip = RotationAnimationClip::from_json(&json_data)
+                .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
+
+            self.state.animation_library.add_clip(id, clip);
+        } else {
+            return Err(JsValue::from_str("Only version 2 animations are supported"));
+        }
+
+        Ok(())
+    }
+
+    /// Advance simulation time (call each frame with delta time)
+    pub fn advance_time(&mut self, delta_ms: f32) {
+        let delta_secs = delta_ms / 1000.0;
+        self.state.playback.time += delta_secs;
+    }
 }

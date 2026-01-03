@@ -1,5 +1,5 @@
 import { Exercise, Workout } from './types';
-import { set_exercise, load_animation, update_skeleton_from_playback, AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
+import { AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { WebGPUEngine } from './engine';
 import { resolveAnimationId, animationData } from './animations';
 import { AudioManager } from './audio-manager';
@@ -75,8 +75,9 @@ function handleEvents(events: WorkoutEvent[]) {
                 break;
             case 'start_exercise':
                 {
-                    if (exercises[state.exerciseIndex].animationId !== undefined) {
-                        set_exercise(exercises[state.exerciseIndex].animationId!);
+                    const animId = exercises[state.exerciseIndex].animationId;
+                    if (animId !== undefined && engine?.wasmApp) {
+                        engine.wasmApp.set_exercise(animId);
                     }
                 }
                 break;
@@ -109,8 +110,8 @@ function startWorkout() {
     // Initialize animation immediately
     if (exercises.length > 0) {
         const exercise = exercises[state.exerciseIndex];
-        if (exercise.animationId !== undefined) {
-            set_exercise(exercise.animationId);
+        if (exercise.animationId !== undefined && engine?.wasmApp) {
+            engine.wasmApp.set_exercise(exercise.animationId);
         }
     }
 
@@ -163,8 +164,8 @@ function skipToExercise(index: number): void {
     };
 
     const exercise = exercises[index];
-    if (exercise.animationId !== undefined) {
-        set_exercise(exercise.animationId);
+    if (exercise.animationId !== undefined && engine?.wasmApp) {
+        engine.wasmApp.set_exercise(exercise.animationId);
     }
     console.log(`Skipped to exercise ${index + 1}: ${name}`);
 
@@ -195,14 +196,17 @@ async function init(): Promise<void> {
     engine = new WebGPUEngine('gpu-canvas');
     await engine.init();
 
-    engine.start(() => {
-        update_skeleton_from_playback();
+    engine.start((_delta, app) => {
+        app.update_skeleton_from_playback();
     });
 
     // Load keyframe animations for exercises
-    for (const [idStr, animJson] of Object.entries(animationData)) {
-        const id = Number(idStr) as AnimationId;
-        load_animation(id, animJson);
+    const app = engine.wasmApp;
+    if (app) {
+        for (const [idStr, animJson] of Object.entries(animationData)) {
+            const id = Number(idStr) as AnimationId;
+            app.load_animation(id, animJson);
+        }
     }
 
     // Initialize UI handlers

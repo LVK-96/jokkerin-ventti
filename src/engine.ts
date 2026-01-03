@@ -1,9 +1,10 @@
-import init, { init_gpu, render_frame, resize_surface, advance_time, log } from '../wasm/pkg/jokkerin_ventti_wasm';
+import init, { init_gpu, log, App } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { initCameraControls, updateCameraFromInput } from './camera';
 
-export type UpdateCallback = (delta: number) => void;
+export type UpdateCallback = (delta: number, app: App) => void;
 
 export class WebGPUEngine {
+    private app: App | null = null;
     private animationId: number | null = null;
     private lastTime = 0;
     private initialized = false;
@@ -30,20 +31,20 @@ export class WebGPUEngine {
             // Initialize wasm-bindgen runtime
             await init();
 
-            // Initialize WebGPU from Rust
-            await init_gpu(this.canvasId);
+            // Initialize WebGPU from Rust - returns App instance
+            this.app = await init_gpu(this.canvasId);
             console.log(`WebGPU initialized on canvas '${this.canvasId}'`);
 
             // Initialize camera controls
             const canvas = document.getElementById(this.canvasId) as HTMLCanvasElement;
-            if (canvas) {
-                initCameraControls(canvas);
+            if (canvas && this.app) {
+                initCameraControls(canvas, this.app);
                 console.log('Camera controls initialized');
             }
 
             // Handle window resize
             window.addEventListener('resize', () => {
-                resize_surface(this.canvasId);
+                this.app?.resize_surface(this.canvasId);
             });
 
             // Create FPS counter element
@@ -54,6 +55,13 @@ export class WebGPUEngine {
             console.error('WebGPU initialization failed:', e);
             throw e;
         }
+    }
+
+    /**
+     * Get the WASM App instance for direct access to WASM functions
+     */
+    get wasmApp(): App | null {
+        return this.app;
     }
 
     /**
@@ -152,19 +160,21 @@ export class WebGPUEngine {
         }
 
         try {
+            if (!this.app) return;
+
             // Update time uniform in Rust
-            advance_time(delta);
+            this.app.advance_time(delta);
 
             // Update camera from keyboard input
             updateCameraFromInput();
 
             // Run custom update logic (e.g., skeleton playback or editor session)
             if (this.onUpdate) {
-                this.onUpdate(delta);
+                this.onUpdate(delta, this.app);
             }
 
             // Render the frame
-            render_frame();
+            this.app.render_frame();
 
             // Schedule next frame
             this.animationId = requestAnimationFrame(this.loop);

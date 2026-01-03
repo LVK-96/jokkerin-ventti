@@ -1,23 +1,6 @@
 import initWasm, {
-    load_animation,
-    // Singleton editor API
-    start_editing,
-    stop_editing,
-    is_editing,
-    get_keyframe_count,
-    get_keyframe_time,
-    set_keyframe_index,
-    add_keyframe,
-    delete_keyframe,
-    get_joint_positions,
-    drag_joint,
-    export_clip_json,
-    get_bone_info,
-    set_bone_rotation,
-    set_bone_position,
-    set_exercise,
-    update_skeleton_from_session,
-    AnimationId
+    AnimationId,
+    App
 } from "../../wasm/pkg/jokkerin_ventti_wasm";
 import { setCameraEnabled, getViewMatrix, getProjectionMatrix } from '../camera';
 import { resolveAnimationId, animationData, DISPLAY_NAMES } from '../animations';
@@ -45,6 +28,11 @@ const JOINT_NAMES = [
 
 let engine: WebGPUEngine | null = null;
 
+// Helper to get the App instance
+function getApp(): App | null {
+    return engine?.wasmApp ?? null;
+}
+
 // --- Initialization ---
 
 async function init() {
@@ -56,19 +44,21 @@ async function init() {
         // Initialize history
         initHistory({
             getKeyframeIndex: () => currentKeyframe,
-            getPoseJson: () => is_editing() ? export_clip_json() : '{}',
+            getPoseJson: () => getApp()?.is_editing() ? getApp()?.export_clip_json() ?? '{}' : '{}',
             getSelectedJoint: () => selectedJoint,
             loadPose: (json) => {
+                const app = getApp();
+                if (!app) return;
                 // Destroy old session, create new one with modified clip
-                stop_editing();
+                app.stop_editing();
                 if (currentExerciseId !== null) {
-                    load_animation(currentExerciseId, json);
-                    start_editing(currentExerciseId);
+                    app.load_animation(currentExerciseId, json);
+                    app.start_editing(currentExerciseId);
                 }
             },
             setKeyframeIndex: (idx) => {
                 currentKeyframe = idx;
-                set_keyframe_index(idx);
+                getApp()?.set_keyframe_index(idx);
             },
             setSelectedJoint: (idx) => {
                 selectedJoint = idx;
@@ -96,10 +86,10 @@ async function init() {
     }
 }
 
-function onEngineUpdate(_delta: number) {
+function onEngineUpdate(_delta: number, app: App) {
     // Use handle-based skeleton update if handle is valid
-    if (is_editing()) {
-        update_skeleton_from_session();
+    if (app.is_editing()) {
+        app.update_skeleton_from_session();
     }
 
     drawOverlay();
@@ -138,12 +128,15 @@ function populateExerciseSelect() {
 }
 
 function loadExercise(name: string) {
+    const app = getApp();
+    if (!app) return;
+
     const id = resolveAnimationId(name);
     if (id === undefined) return;
 
     // Destroy previous session if exists
-    if (is_editing()) {
-        stop_editing();
+    if (app.is_editing()) {
+        app.stop_editing();
     }
 
     currentExerciseName = name;
@@ -156,12 +149,11 @@ function loadExercise(name: string) {
         return;
     }
 
-    set_exercise(id);
-    load_animation(id, json);
+    app.set_exercise(id);
+    app.load_animation(id, json);
 
     // Create new editor session with handle
-    start_editing(id);
-
+    app.start_editing(id);
 
     currentKeyframe = 0;
     selectedJoint = null;
@@ -270,30 +262,31 @@ function bindJointInputs() {
 }
 
 function onJointInputChange(e: Event) {
-    if (selectedJoint === null || !is_editing()) return;
+    const app = getApp();
+    if (selectedJoint === null || !app?.is_editing()) return;
     const target = e.target as HTMLInputElement;
     const id = target.id;
     const val = parseFloat(target.value);
 
-    const info = get_bone_info(selectedJoint);
+    const info = app.get_bone_info(selectedJoint);
     if (info) {
         if (isNaN(val)) {
             // Restore the input to its current valid value
-            set_bone_position(selectedJoint, info.x, info.y, info.z);
-            set_bone_rotation(selectedJoint, info.rx, info.ry, info.rz);
+            app.set_bone_position(selectedJoint, info.x, info.y, info.z);
+            app.set_bone_rotation(selectedJoint, info.rx, info.ry, info.rz);
         } else {
             if (id.startsWith('j-r')) {
                 // Rotation
                 let rx = id === 'j-rx' ? val : info.rx;
                 let ry = id === 'j-ry' ? val : info.ry;
                 let rz = id === 'j-rz' ? val : info.rz;
-                set_bone_rotation(selectedJoint, rx, ry, rz);
+                app.set_bone_rotation(selectedJoint, rx, ry, rz);
             } else {
                 // Position
                 let x = id === 'j-x' ? val : info.x;
                 let y = id === 'j-y' ? val : info.y;
                 let z = id === 'j-z' ? val : info.z;
-                set_bone_position(selectedJoint, x, y, z);
+                app.set_bone_position(selectedJoint, x, y, z);
             }
         }
         info.free();
@@ -301,8 +294,9 @@ function onJointInputChange(e: Event) {
 }
 
 function updateJointUI(jointId: number) {
-    if (!is_editing()) return;
-    const info = get_bone_info(jointId);
+    const app = getApp();
+    if (!app?.is_editing()) return;
+    const info = app.get_bone_info(jointId);
 
     const ph = document.getElementById('joint-placeholder');
     const ctrl = document.getElementById('joint-controls');
@@ -331,7 +325,8 @@ function updateJointUI(jointId: number) {
 }
 
 function onPointerMove(e: PointerEvent) {
-    if (!currentExerciseName || !is_editing()) return;
+    const app = getApp();
+    if (!currentExerciseName || !app?.is_editing()) return;
 
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -353,7 +348,7 @@ function onPointerMove(e: PointerEvent) {
         const canvas = e.target as HTMLCanvasElement;
         const dpr = window.devicePixelRatio || 1;
 
-        drag_joint(
+        app.drag_joint(
             selectedJoint,
             dx * dpr,
             dy * dpr,
@@ -369,7 +364,8 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerDown(e: PointerEvent) {
-    if (!currentExerciseName || !is_editing()) return;
+    const app = getApp();
+    if (!currentExerciseName || !app?.is_editing()) return;
 
     const canvas = e.target as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
@@ -415,7 +411,8 @@ function onKeyDown(e: KeyboardEvent) {
 // --- Logic ---
 
 function getLogicalJointPositions(): Float32Array | number[] | null {
-    if (!is_editing()) return null;
+    const app = getApp();
+    if (!app?.is_editing()) return null;
 
     // Get camera matrices
     const view = getViewMatrix();
@@ -423,7 +420,7 @@ function getLogicalJointPositions(): Float32Array | number[] | null {
     const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
     if (!canvas) return null;
 
-    const raw = get_joint_positions(view, proj, canvas.width, canvas.height);
+    const raw = app.get_joint_positions(view, proj, canvas.width, canvas.height);
     if (!raw || raw.length === 0) return null;
 
     // Scale down by DPR for logical CSS pixels
@@ -462,39 +459,43 @@ function findNearestJoint(sx: number, sy: number): number | null {
 }
 
 function navigateKeyframe(delta: number) {
-    if (!is_editing()) return;
-    const count = get_keyframe_count();
+    const app = getApp();
+    if (!app?.is_editing()) return;
+    const count = app.get_keyframe_count();
     if (count === 0) return;
 
     currentKeyframe = Math.max(0, Math.min(count - 1, currentKeyframe + delta));
-    set_keyframe_index(currentKeyframe);
+    app.set_keyframe_index(currentKeyframe);
     updateUI();
 }
 
 function addKeyframeHandler() {
-    if (!is_editing()) return;
+    const app = getApp();
+    if (!app?.is_editing()) return;
     saveUndoState();
-    add_keyframe(currentKeyframe);
+    app.add_keyframe(currentKeyframe);
     currentKeyframe++;
-    set_keyframe_index(currentKeyframe);
+    app.set_keyframe_index(currentKeyframe);
     updateUI();
 }
 
 function deleteKeyframeHandler() {
-    if (!is_editing()) return;
+    const app = getApp();
+    if (!app?.is_editing()) return;
     saveUndoState();
-    delete_keyframe(currentKeyframe);
-    const count = get_keyframe_count();
+    app.delete_keyframe(currentKeyframe);
+    const count = app.get_keyframe_count();
     if (currentKeyframe >= count) currentKeyframe = Math.max(0, count - 1);
 
-    set_keyframe_index(currentKeyframe);
+    app.set_keyframe_index(currentKeyframe);
     updateUI();
 }
 
 function copyJson() {
-    if (!is_editing()) return;
+    const app = getApp();
+    if (!app?.is_editing()) return;
     try {
-        const json = export_clip_json();
+        const json = app.export_clip_json();
         navigator.clipboard.writeText(json);
         const btn = document.getElementById('save-btn');
         if (btn) {
@@ -511,14 +512,15 @@ function copyJson() {
 // --- UI Updates ---
 
 function updateUI() {
-    if (!is_editing()) {
+    const app = getApp();
+    if (!app?.is_editing()) {
         const timeDisplay = document.getElementById('time-display');
         if (timeDisplay) timeDisplay.textContent = 'No Animation';
         return;
     }
 
-    const count = get_keyframe_count();
-    const time = get_keyframe_time();
+    const count = app.get_keyframe_count();
+    const time = app.get_keyframe_time();
 
     const timeDisplay = document.getElementById('time-display');
     if (timeDisplay) timeDisplay.textContent = `${time.toFixed(2)} s (Frame ${currentKeyframe + 1}/${count})`;
