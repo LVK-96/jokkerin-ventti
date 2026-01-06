@@ -164,3 +164,7 @@ body {
 [hidden] {
     display: none !important;
 }
+
+canvas {
+    touch-action: none;
+}
