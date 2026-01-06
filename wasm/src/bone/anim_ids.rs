@@ -30,6 +30,7 @@ pub enum AnimationId {
     Planking = 18,
     SquatJumps = 19,
     Burpees = 20,
+
 }
 
 impl AnimationId {

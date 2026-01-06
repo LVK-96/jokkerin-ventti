@@ -1,13 +1,13 @@
 import { AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
 
-// Dynamically import all animation JSONs as raw strings
-const animationModules = import.meta.glob('./assets/animations/*.json', {
-    query: '?raw',
+// Dynamically import all animation binary files as URLs
+const animationModules = import.meta.glob('./assets/animations/*.anim', {
+    query: '?url',
     import: 'default',
     eager: true
 }) as Record<string, string>;
 
-export const animationData: Record<number, string> = {};
+export const animationData: Record<number, string> = {}; // Stores URL to .anim file
 export const DISPLAY_NAMES: Record<number, string> = {};
 
 // Helper: "AbCrunch" -> "ab_crunch"
@@ -35,17 +35,30 @@ Object.entries(AnimationId).forEach(([key, val]) => {
 });
 
 // Populate animation data
-Object.entries(animationModules).forEach(([path, content]) => {
-    const filename = path.split('/').pop()?.replace('.json', '') || '';
+Object.entries(animationModules).forEach(([path, url]) => {
+    const filename = path.split('/').pop()?.replace('.anim', '') || '';
     const id = FILENAME_TO_ID[filename];
 
     if (id !== undefined) {
-        animationData[id] = content;
+        animationData[id] = url;
         DISPLAY_NAMES[id] = toDisplayName(filename);
     } else {
-        console.warn(`Animation file ${filename}.json does not match any AnimationId variant.`);
+        console.warn(`Animation file ${filename}.anim does not match any AnimationId variant.`);
     }
 });
+
+/**
+ * Fetch a binary animation file and return as Uint8Array
+ */
+export async function fetchAnimationBuffer(url: string): Promise<Uint8Array> {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch animation: ${url}`);
+    }
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
+}
+
 
 /**
  * Resolve an exercise name to an AnimationId.

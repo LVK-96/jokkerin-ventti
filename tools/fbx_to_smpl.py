@@ -191,6 +191,133 @@ def process_fbx(input_path, anim_name, step=1, verbose=False):
 
     return keyframes
 
+# Binary format helpers
+def float_to_q15(f: float) -> int:
+    """Convert float [-1, 1] to Q1.15 fixed point (signed 16-bit)."""
+    return max(-32768, min(32767, int(round(f * 32767))))
+
+def write_binary_animation(output_path: Path, name: str, duration: float, keyframes: list):
+    """Write animation in compact binary format
+
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |      Keyframe Count (u16)     |    Animation Duration (f16)   |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                       Dynamic Mask (u32)                      |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |         Base Root X (f16)     |         Base Root Y (f16)     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |         Base Root Z (f16)     |       Base Bone 0 X (i16)     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |       Base Bone 0 Y (i16)     |       Base Bone 0 Z (i16)     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |       Base Bone 1 X (i16)     |              ...              |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                       ... (22 Bones) ...                      |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                    DYNAMIC KEYFRAME DATA                      |
+    |                                                               |
+    |     Bone Rotations: 3 x i16 (X, Y, Z). W is reconstructed     |
+    |     Root Position: 3 x f16 (X, Y, Z).                         |
+    | [Repeat x Keyframe Count, only for bones with bit se in mask] |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+    Mask Bits: 0-21 = Bones, 22 = Root Position (root can change from frame to frame) (0 = No movement, 1 = Movement)
+    Rotation Encoding: Q1.15 signed fixed-point x, y, and z (We know that w = sqrt(1 - (x^2+y^2+z^2)))
+    """
+
+    import struct
+    import numpy as np
+
+    BONE_ORDER = [
+        "p", "lh", "rh", "s1", "lk", "rk", "s2", "la", "ra", "s3",
+        "lf", "rf", "n", "lc", "rc", "h", "ls", "rs", "le", "re",
+        "lw", "rw"
+    ]
+
+    # Initialize mask and base data
+    dynamic_mask = 0
+    base_rotations = []
+    base_root = keyframes[0]["p"].get("rp", [0.0, 0.0, 0.0]) if keyframes else [0.0, 0.0, 0.0]
+
+    for i, bone_key in enumerate(BONE_ORDER):
+        # Pick the rotation from the first keyframe as base
+        first_pose = keyframes[0]["p"].get(bone_key, {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0})
+        base_rotations.append(first_pose)
+
+        # Check if this bone moves at all
+        moves = False
+        for kf in keyframes:
+            rot = kf["p"].get(bone_key, {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0})
+            if (abs(rot["w"] - first_pose["w"]) > 0.0001 or
+                abs(rot["x"] - first_pose["x"]) > 0.0001 or
+                abs(rot["y"] - first_pose["y"]) > 0.0001 or
+                abs(rot["z"] - first_pose["z"]) > 0.0001):
+                moves = True
+                break
+        if moves:
+            dynamic_mask |= (1 << i)
+
+    # Check if root moves
+    root_moves = False
+    for kf in keyframes:
+        rp = kf["p"].get("rp", [0.0, 0.0, 0.0])
+        if (abs(rp[0] - base_root[0]) > 0.001 or
+            abs(rp[1] - base_root[1]) > 0.001 or
+            abs(rp[2] - base_root[2]) > 0.001):
+            root_moves = True
+            break
+    if root_moves:
+        dynamic_mask |= (1 << 22)
+
+    with open(output_path, 'wb') as f:
+        # 1. Basic Header (8 bytes)
+        f.write(struct.pack('<H', len(keyframes)))
+        f.write(np.float16(duration).tobytes())
+        f.write(struct.pack('<I', dynamic_mask))
+
+        # 2. Base Data (Header extension)
+        # Base Root
+        for val in base_root:
+            f.write(np.float16(val).tobytes())
+        # Base Rotations (all 22 bones, x, y, z only)
+        for rot in base_rotations:
+            # Enforce w >= 0 to make quaternion unique
+            w, x, y, z = rot["w"], rot["x"], rot["y"], rot["z"]
+            if w < 0:
+                x, y, z = -x, -y, -z
+
+            f.write(struct.pack('<h', float_to_q15(x)))
+            f.write(struct.pack('<h', float_to_q15(y)))
+            f.write(struct.pack('<h', float_to_q15(z)))
+
+        # 3. Dynamic Keyframe Data
+        for kf in keyframes:
+            pose = kf.get("p", {})
+
+            # Write only rotating bones (x, y, z only)
+            for i, bone_key in enumerate(BONE_ORDER):
+                if dynamic_mask & (1 << i):
+                    rot = pose.get(bone_key, {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0})
+                    # Enforce w >= 0
+                    w, x, y, z = rot["w"], rot["x"], rot["y"], rot["z"]
+                    if w < 0:
+                        x, y, z = -x, -y, -z
+
+                    f.write(struct.pack('<h', float_to_q15(x)))
+                    f.write(struct.pack('<h', float_to_q15(y)))
+                    f.write(struct.pack('<h', float_to_q15(z)))
+
+            # Write root only if it moves
+            if dynamic_mask & (1 << 22):
+                rp = pose.get("rp", [0.0, 0.0, 0.0])
+                f.write(np.float16(rp[0]).tobytes())
+                f.write(np.float16(rp[1]).tobytes())
+                f.write(np.float16(rp[2]).tobytes())
+
+    print(f"Binary output: {len(keyframes)} keyframes, dynamic_mask={hex(dynamic_mask)}, size={output_path.stat().st_size} bytes")
+
 def main():
     argv = sys.argv
     if "--" in argv:
@@ -200,9 +327,10 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Input FBX file")
-    parser.add_argument("-o", "--output", help="Output JSON file")
+    parser.add_argument("-o", "--output", help="Output file (default: input.anim)")
     parser.add_argument("--name", help="Animation name")
     parser.add_argument("--step", type=int, default=2, help="Frame step (default 2, e.g. 15fps from 30fps source)")
+    parser.add_argument("--json", action="store_true", help="Output pretty-printed JSON instead of binary (for debugging)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose Blender output")
     args = parser.parse_args(argv)
 
@@ -210,18 +338,27 @@ def main():
     keyframes = process_fbx(input_path, args.name, step=args.step, verbose=args.verbose)
 
     if keyframes:
-        output_data = {
-            "v": 2,
-            "n": args.name if args.name else input_path.stem,
-            "d": keyframes[-1]["t"],
-            "kf": keyframes
-        }
+        anim_name = args.name if args.name else input_path.stem
+        duration = keyframes[-1]["t"]
 
-        output_path = Path(args.output).resolve() if args.output else input_path.with_suffix('.json')
-        with open(output_path, "w") as f:
-            json.dump(output_data, f, indent=None, separators=(',', ':'))
-
-        print(f"Success: {output_path}")
+        if args.json:
+            # JSON output for debugging
+            output_data = {
+                "v": 2,
+                "n": anim_name,
+                "d": duration,
+                "kf": keyframes
+            }
+            output_path = Path(args.output).resolve() if args.output else input_path.with_suffix('.json')
+            with open(output_path, "w") as f:
+                json.dump(output_data, f, indent=2)
+            print(f"JSON output: {output_path}")
+        else:
+            # Binary output (default)
+            output_path = Path(args.output).resolve() if args.output else input_path.with_suffix('.anim')
+            write_binary_animation(output_path, anim_name, duration, keyframes)
+            print(f"Success: {output_path}")
 
 if __name__ == "__main__":
     main()
+

@@ -1,7 +1,7 @@
 import { Exercise, Workout } from './types';
 import { AnimationId } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { WebGPUEngine } from './engine';
-import { resolveAnimationId, animationData } from './animations';
+import { resolveAnimationId, animationData, fetchAnimationBuffer } from './animations';
 import { AudioManager } from './audio-manager';
 import { UIController } from './ui-controller';
 import { WorkoutState, WorkoutPhase, createInitialState, tick, WorkoutEvent } from './workout-state';
@@ -203,10 +203,16 @@ async function init(): Promise<void> {
     // Load keyframe animations for exercises
     const app = engine.wasmApp;
     if (app) {
-        for (const [idStr, animJson] of Object.entries(animationData)) {
+        const loadPromises = Object.entries(animationData).map(async ([idStr, url]) => {
             const id = Number(idStr) as AnimationId;
-            app.load_animation(id, animJson);
-        }
+            try {
+                const buffer = await fetchAnimationBuffer(url);
+                app.load_animation_binary(id, buffer);
+            } catch (err) {
+                console.error(`Failed to load animation ${id}:`, err);
+            }
+        });
+        await Promise.all(loadPromises);
     }
 
     // Initialize UI handlers

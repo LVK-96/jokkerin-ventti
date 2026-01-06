@@ -420,6 +420,7 @@ dependencies = [
  "console_log",
  "getrandom",
  "glam",
+ "half",
  "heck",
  "log",
  "rand",

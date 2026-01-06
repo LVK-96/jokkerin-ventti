@@ -1,7 +1,19 @@
 use super::id::BoneId;
 use super::pose::RotationPose;
 use glam::Quat;
+use half::f16; // Note: We use the 'half' crate because the native WASM target does not support f16
 use serde::{Deserialize, Serialize};
+
+// ============================================================================
+// Binary Format Helpers
+// ============================================================================
+
+/// Convert Q1.15 signed fixed-point to f32
+/// Q1.15 has 1 sign bit and 15 fractional bits, range [-1.0, 1.0)
+fn q15_to_f32(bytes: [u8; 2]) -> f32 {
+    let val = i16::from_le_bytes(bytes);
+    val as f32 / 32767.0
+}
 
 // ============================================================================
 // Animation System
@@ -310,6 +322,105 @@ impl RotationAnimationClip {
         Ok(Self {
             name: clip_json.name,
             duration: clip_json.duration,
+            keyframes,
+        })
+    }
+
+    /// Parse from binary format
+    ///
+    /// Binary format:
+    /// - Header: u16 keyframe_count, f16 duration
+    /// - Per keyframe: 22 bones * 4 Q1.15 values + 3 f16 root position (182 bytes)
+    pub fn from_binary(data: &[u8], name: String) -> Result<Self, &'static str> {
+        if data.len() < 8 {
+            return Err("Binary data too short for header");
+        }
+
+        // 1. Read Header (8 bytes)
+        let keyframe_count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        let duration = f16::from_le_bytes([data[2], data[3]]).to_f32();
+        let dynamic_mask = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+        let mut offset = 8;
+
+        // 2. Read Base Data (Header extension)
+        // Base Root (6 bytes)
+        if data.len() < offset + 6 {
+            return Err("Binary data too short for base root");
+        }
+        let base_rx = f16::from_le_bytes([data[offset], data[offset + 1]]).to_f32();
+        let base_ry = f16::from_le_bytes([data[offset + 2], data[offset + 3]]).to_f32();
+        let base_rz = f16::from_le_bytes([data[offset + 4], data[offset + 5]]).to_f32();
+        let base_root = glam::Vec3::new(base_rx, base_ry, base_rz);
+        offset += 6;
+
+        // Base Rotations (22 bones * 6 bytes = 132 bytes)
+        if data.len() < offset + 132 {
+            return Err("Binary data too short for base rotations");
+        }
+        let mut base_rotations = [Quat::IDENTITY; BoneId::COUNT];
+        for i in 0..BoneId::COUNT {
+            let x = q15_to_f32([data[offset], data[offset + 1]]);
+            let y = q15_to_f32([data[offset + 2], data[offset + 3]]);
+            let z = q15_to_f32([data[offset + 4], data[offset + 5]]);
+            offset += 6;
+
+            // Reconstruct W: w^2 + x^2 + y^2 + z^2 = 1.0
+            let sum_sq = x * x + y * y + z * z;
+            let w = (1.0 - sum_sq).max(0.0).sqrt();
+            base_rotations[i] = Quat::from_xyzw(x, y, z, w).normalize();
+        }
+
+        // 3. Read Dynamic Keyframe Data
+        let mut keyframes = Vec::with_capacity(keyframe_count);
+
+        for i in 0..keyframe_count {
+            let mut pose = RotationPose::bind_pose();
+            pose.root_position = base_root;
+            pose.local_rotations = base_rotations;
+
+            // Read dynamic rotations (3 components each)
+            for bone_idx in 0..BoneId::COUNT {
+                if dynamic_mask & (1 << bone_idx) != 0 {
+                    if data.len() < offset + 6 {
+                        return Err("Binary data truncated in dynamic rotations");
+                    }
+                    let x = q15_to_f32([data[offset], data[offset + 1]]);
+                    let y = q15_to_f32([data[offset + 2], data[offset + 3]]);
+                    let z = q15_to_f32([data[offset + 4], data[offset + 5]]);
+                    offset += 6;
+
+                    let sum_sq = x * x + y * y + z * z;
+                    let w = (1.0 - sum_sq).max(0.0).sqrt();
+                    pose.local_rotations[bone_idx] = Quat::from_xyzw(x, y, z, w).normalize();
+                }
+            }
+
+            // Read dynamic root position
+            if dynamic_mask & (1 << 22) != 0 {
+                if data.len() < offset + 6 {
+                    return Err("Binary data truncated in dynamic root position");
+                }
+                let rx = f16::from_le_bytes([data[offset], data[offset + 1]]).to_f32();
+                let ry = f16::from_le_bytes([data[offset + 2], data[offset + 3]]).to_f32();
+                let rz = f16::from_le_bytes([data[offset + 4], data[offset + 5]]).to_f32();
+                pose.root_position = glam::Vec3::new(rx, ry, rz);
+                offset += 6;
+            }
+
+            // Keyframes are evenly spaced over duration
+            let time = if keyframe_count > 1 {
+                duration * (i as f32) / ((keyframe_count - 1) as f32)
+            } else {
+                0.0
+            };
+
+            keyframes.push(RotationKeyframe { time, pose });
+        }
+
+        Ok(Self {
+            name,
+            duration,
             keyframes,
         })
     }

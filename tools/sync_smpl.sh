@@ -21,8 +21,8 @@ blender --background --python-use-system-env --python tools/extract_rest_pose.py
 echo "[3/3] Updating animations..."
 
 # Master Placeholder - always generate this
-echo "  [Master Placeholder] -> src/assets/animations/placeholder.json"
-blender --background --python-use-system-env --python tools/fbx_to_smpl.py -- "$PLACEHOLDER_FBX" --name "Placeholder" -o "src/assets/animations/placeholder.json"
+echo "  [Master Placeholder] -> src/assets/animations/placeholder.anim"
+blender --background --python-use-system-env --python tools/fbx_to_smpl.py -- "$PLACEHOLDER_FBX" --name "Placeholder" -o "src/assets/animations/placeholder.anim"
 
 # Updates all exercises from workouts.json
 EXERCISES=$(jq -r '.exercises[].name' src/assets/Workouts/jokkeri_ventti.json)
@@ -33,14 +33,14 @@ while IFS= read -r EX_NAME; do
     # Create filename: "Ab Crunch" -> "ab_crunch"
     BASENAME=$(echo "$EX_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr '-' '_' | tr '/' '_' | tr -d '()')
     FBX_FILE="fbx/${BASENAME}.fbx"
-    OUT_FILE="src/assets/animations/${BASENAME}.json"
+    OUT_FILE="src/assets/animations/${BASENAME}.anim"
 
     if [ -f "$FBX_FILE" ]; then
         echo "  [$EX_NAME] -> $OUT_FILE (Using specific FBX)"
         blender --background --python-use-system-env --python tools/fbx_to_smpl.py -- "$FBX_FILE" --name "$EX_NAME" -o "$OUT_FILE"
     else
         echo "  [$EX_NAME] -> (Skipping, no matching FBX in $FBX_FILE)"
-        # We don't generate a JSON here; Rust will fall back to placeholder.json
+        # We don't generate a JSON here; Rust will fall back to placeholder.anim
         if [ -f "$OUT_FILE" ]; then
             rm "$OUT_FILE" # Clean up old placeholders
         fi

@@ -226,20 +226,22 @@ mod tests {
     #[test]
     #[wasm_bindgen_test]
     fn test_animation_parsing() {
+        // Uses v2 schema with short field names
         let json = r#"{
-            "name": "test",
-            "duration": 1.0,
-            "keyframes": [
+            "v": 2,
+            "n": "test",
+            "d": 1.0,
+            "kf": [
                 {
-                    "time": 0.0,
-                    "pose": {
-                        "spine1": { "x": 0, "y": 0, "z": 0 }
+                    "t": 0.0,
+                    "p": {
+                        "s1": { "x": 0, "y": 0, "z": 0 }
                     }
                 },
                 {
-                    "time": 0.5,
-                    "pose": {
-                        "spine1": { "w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0 }
+                    "t": 0.5,
+                    "p": {
+                        "s1": { "w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0 }
                     }
                 }
             ]
@@ -248,5 +250,33 @@ mod tests {
         let clip = RotationAnimationClip::from_json(json).unwrap();
         assert_eq!(clip.name, "test");
         assert_eq!(clip.keyframes.len(), 2);
+    }
+
+    #[test]
+    #[wasm_bindgen_test]
+    fn test_binary_animation_parsing() {
+        let mut data = Vec::new();
+
+        // 1. Basic Header (8 bytes)
+        data.extend_from_slice(&2u16.to_le_bytes()); // 2 keyframes
+        data.extend_from_slice(&[0x00, 0x45]); // f16 for 5.0
+        data.extend_from_slice(&0u32.to_le_bytes()); // dynamic_mask = 0 (static)
+
+        // 2. Base Data (Header extension)
+        // Base Root (0, 1.0, 0)
+        data.extend_from_slice(&[0x00, 0x00]); // x = 0
+        data.extend_from_slice(&[0x00, 0x3c]); // y = 1.0
+        data.extend_from_slice(&[0x00, 0x00]); // z = 0
+
+        for _ in 0..22 {
+            data.extend_from_slice(&0i16.to_le_bytes()); // x = 0
+            data.extend_from_slice(&0i16.to_le_bytes()); // y = 0
+            data.extend_from_slice(&0i16.to_le_bytes()); // z = 0
+        }
+
+        let clip = RotationAnimationClip::from_binary(&data, "test".to_string()).unwrap();
+        assert_eq!(clip.keyframes.len(), 2);
+        assert!((clip.duration - 5.0).abs() < 0.1);
+        assert!((clip.keyframes[0].pose.root_position.y - 1.0).abs() < 0.01);
     }
 }

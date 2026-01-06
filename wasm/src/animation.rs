@@ -168,6 +168,18 @@ impl App {
         Ok(())
     }
 
+    /// Load an animation clip from binary data
+    /// This is the preferred method for production - smaller files, faster parsing
+    pub fn load_animation_binary(&mut self, id: AnimationId, data: &[u8]) -> Result<(), JsValue> {
+        let name = format!("{:?}", id);
+        let clip = RotationAnimationClip::from_binary(data, name)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse binary: {}", e)))?;
+
+        self.state.animation_library.add_clip(id, clip);
+
+        Ok(())
+    }
+
     /// Advance simulation time (call each frame with delta time)
     pub fn advance_time(&mut self, delta_ms: f32) {
         let delta_secs = delta_ms / 1000.0;
