@@ -67,7 +67,7 @@ export function resolveAnimationId(name: string): AnimationId {
     if (slug === 'pushups') return AnimationId.PushUps;
 
     // Default to placeholder
-    return AnimationId.placeholder;
+    return AnimationId.Placeholder;
 }
 
 console.log(`Loaded ${Object.keys(animationData).length} animation files into library.`);
