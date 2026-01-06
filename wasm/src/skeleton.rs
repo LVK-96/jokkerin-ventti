@@ -10,13 +10,13 @@ use glam::{Vec3, Vec3A};
 /// BONE_RADIUS is used for:
 /// - Cylinder geometry thickness when rendering bones
 /// - Floor collision detection (joints must be above BONE_RADIUS to avoid clipping)
-pub const BONE_RADIUS: f32 = 0.04;
+pub const BONE_RADIUS: f32 = 0.03;
 
 /// Radius of the head sphere mesh
-pub const HEAD_RADIUS: f32 = 0.12;
+pub const HEAD_RADIUS: f32 = 0.10;
 
 /// Radius of debug joint spheres (slightly larger than bones for visibility)
-pub const JOINT_RADIUS: f32 = 0.05;
+pub const JOINT_RADIUS: f32 = 0.04;
 
 /// Vertex format for skinned mesh
 /// Vertex format for GPU-skinned mesh rendering
@@ -29,13 +29,14 @@ pub struct SkinnedVertex {
     pub position: [f32; 3],
     /// Surface normal for lighting
     pub normal: [f32; 3],
-    /// Index into bone matrix array (0-28)
+    /// Index into bone matrix array (0-22)
     pub bone_index: u32,
 }
 
 // Total number of renderable parts (bones)
-// 13 cylinders + 1 head sphere + 15 debug joint spheres = 29
-pub const RENDER_BONE_COUNT: usize = 29;
+// 21 cylinders (segments) + 1 head sphere + 22 debug joint spheres = 44
+// Just an estimate for buffer reservation, exact count not critical for constant but good for optimization
+pub const RENDER_BONE_COUNT: usize = 44;
 
 /// Number of segments for cylinder geometry
 pub const CYLINDER_SEGMENTS: usize = 12;
@@ -252,110 +253,216 @@ pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
     let mut vertices = Vec::new();
     use crate::skeleton_constants::*;
 
-    // Order MUST match compute_bone_matrices
-    add_cylinder(&mut vertices, DEFAULT_HIPS, DEFAULT_NECK, BONE_RADIUS, 0);
+    // Matrix index - must be incremented for each primitive (cylinder/sphere)
+    // This matches the order in pose.rs compute_bone_matrices()
+    let mut idx: u32 = 0;
+
+    // Spine chain (5 cylinders)
     add_cylinder(
         &mut vertices,
+        DEFAULT_PELVIS,
+        DEFAULT_SPINE1,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_SPINE1,
+        DEFAULT_SPINE2,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_SPINE2,
+        DEFAULT_SPINE3,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_SPINE3,
         DEFAULT_NECK,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(&mut vertices, DEFAULT_NECK, DEFAULT_HEAD, BONE_RADIUS, idx);
+    idx += 1;
+
+    // Left Arm chain (4 cylinders)
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_SPINE3,
+        DEFAULT_LEFT_COLLAR,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_LEFT_COLLAR,
         DEFAULT_LEFT_SHOULDER,
         BONE_RADIUS,
-        1,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_LEFT_SHOULDER,
         DEFAULT_LEFT_ELBOW,
         BONE_RADIUS,
-        2,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_LEFT_ELBOW,
-        DEFAULT_LEFT_HAND,
+        DEFAULT_LEFT_WRIST,
         BONE_RADIUS,
-        3,
+        idx,
     );
+    idx += 1;
+
+    // Right Arm chain (4 cylinders)
     add_cylinder(
         &mut vertices,
-        DEFAULT_NECK,
+        DEFAULT_SPINE3,
+        DEFAULT_RIGHT_COLLAR,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_RIGHT_COLLAR,
         DEFAULT_RIGHT_SHOULDER,
         BONE_RADIUS,
-        4,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_RIGHT_SHOULDER,
         DEFAULT_RIGHT_ELBOW,
         BONE_RADIUS,
-        5,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_RIGHT_ELBOW,
-        DEFAULT_RIGHT_HAND,
+        DEFAULT_RIGHT_WRIST,
         BONE_RADIUS,
-        6,
+        idx,
     );
+    idx += 1;
+
+    // Left Leg chain (4 cylinders)
     add_cylinder(
         &mut vertices,
-        DEFAULT_HIPS,
+        DEFAULT_PELVIS,
         DEFAULT_LEFT_HIP,
         BONE_RADIUS,
-        7,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_LEFT_HIP,
         DEFAULT_LEFT_KNEE,
         BONE_RADIUS,
-        8,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_LEFT_KNEE,
+        DEFAULT_LEFT_ANKLE,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_LEFT_ANKLE,
         DEFAULT_LEFT_FOOT,
         BONE_RADIUS,
-        9,
+        idx,
     );
+    idx += 1;
+
+    // Right Leg chain (4 cylinders)
     add_cylinder(
         &mut vertices,
-        DEFAULT_HIPS,
+        DEFAULT_PELVIS,
         DEFAULT_RIGHT_HIP,
         BONE_RADIUS,
-        10,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_RIGHT_HIP,
         DEFAULT_RIGHT_KNEE,
         BONE_RADIUS,
-        11,
+        idx,
     );
+    idx += 1;
     add_cylinder(
         &mut vertices,
         DEFAULT_RIGHT_KNEE,
+        DEFAULT_RIGHT_ANKLE,
+        BONE_RADIUS,
+        idx,
+    );
+    idx += 1;
+    add_cylinder(
+        &mut vertices,
+        DEFAULT_RIGHT_ANKLE,
         DEFAULT_RIGHT_FOOT,
         BONE_RADIUS,
-        12,
+        idx,
     );
+    idx += 1;
 
-    add_sphere(&mut vertices, DEFAULT_HEAD, HEAD_RADIUS, 13);
+    // Head Sphere (1 sphere)
+    add_sphere(&mut vertices, DEFAULT_HEAD, HEAD_RADIUS, idx);
+    idx += 1;
 
-    // Debug joints
-    add_sphere(&mut vertices, DEFAULT_HIPS, JOINT_RADIUS, 14);
-    add_sphere(&mut vertices, DEFAULT_NECK, JOINT_RADIUS, 15);
-    add_sphere(&mut vertices, DEFAULT_LEFT_SHOULDER, JOINT_RADIUS, 16);
-    add_sphere(&mut vertices, DEFAULT_LEFT_ELBOW, JOINT_RADIUS, 17);
-    add_sphere(&mut vertices, DEFAULT_LEFT_HAND, JOINT_RADIUS, 18);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_SHOULDER, JOINT_RADIUS, 19);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_ELBOW, JOINT_RADIUS, 20);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_HAND, JOINT_RADIUS, 21);
-    add_sphere(&mut vertices, DEFAULT_LEFT_HIP, JOINT_RADIUS, 22);
-    add_sphere(&mut vertices, DEFAULT_LEFT_KNEE, JOINT_RADIUS, 23);
-    add_sphere(&mut vertices, DEFAULT_LEFT_FOOT, JOINT_RADIUS, 24);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_HIP, JOINT_RADIUS, 25);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_KNEE, JOINT_RADIUS, 26);
-    add_sphere(&mut vertices, DEFAULT_RIGHT_FOOT, JOINT_RADIUS, 27);
+    // Debug joints (22 spheres, one per bone)
+    let all_defaults = [
+        DEFAULT_PELVIS,
+        DEFAULT_LEFT_HIP,
+        DEFAULT_RIGHT_HIP,
+        DEFAULT_SPINE1,
+        DEFAULT_LEFT_KNEE,
+        DEFAULT_RIGHT_KNEE,
+        DEFAULT_SPINE2,
+        DEFAULT_LEFT_ANKLE,
+        DEFAULT_RIGHT_ANKLE,
+        DEFAULT_SPINE3,
+        DEFAULT_LEFT_FOOT,
+        DEFAULT_RIGHT_FOOT,
+        DEFAULT_NECK,
+        DEFAULT_LEFT_COLLAR,
+        DEFAULT_RIGHT_COLLAR,
+        DEFAULT_HEAD,
+        DEFAULT_LEFT_SHOULDER,
+        DEFAULT_RIGHT_SHOULDER,
+        DEFAULT_LEFT_ELBOW,
+        DEFAULT_RIGHT_ELBOW,
+        DEFAULT_LEFT_WRIST,
+        DEFAULT_RIGHT_WRIST,
+    ];
+
+    for default_pos in all_defaults {
+        add_sphere(&mut vertices, default_pos, JOINT_RADIUS, idx);
+        idx += 1;
+    }
 
     vertices
 }

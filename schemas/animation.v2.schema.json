@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Animation Clip (Rotation V2 - Quaternion/Euler Based)",
+    "title": "Animation Clip (Rotation V2 - Quaternion or Euler)",
     "type": "object",
     "properties": {
         "version": {
@@ -32,38 +32,71 @@
                                 "minItems": 3,
                                 "maxItems": 3
                             },
-                            "hips": {
-                                "$ref": "#/definitions/euler"
+                            "pelvis": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "spine": {
-                                "$ref": "#/definitions/euler"
+                            "l_hip": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "r_hip": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "spine1": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "l_knee": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "r_knee": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "spine2": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "l_ankle": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "r_ankle": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "spine3": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "l_foot": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "r_foot": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "neck": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "l_collar": {
+                                "$ref": "#/definitions/rotation"
+                            },
+                            "r_collar": {
+                                "$ref": "#/definitions/rotation"
                             },
                             "head": {
-                                "$ref": "#/definitions/euler"
+                                "$ref": "#/definitions/rotation"
                             },
-                            "left_upper_arm": {
-                                "$ref": "#/definitions/euler"
+                            "l_shoulder": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "left_forearm": {
-                                "$ref": "#/definitions/euler"
+                            "r_shoulder": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "right_upper_arm": {
-                                "$ref": "#/definitions/euler"
+                            "l_elbow": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "right_forearm": {
-                                "$ref": "#/definitions/euler"
+                            "r_elbow": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "left_thigh": {
-                                "$ref": "#/definitions/euler"
+                            "l_wrist": {
+                                "$ref": "#/definitions/rotation"
                             },
-                            "left_shin": {
-                                "$ref": "#/definitions/euler"
-                            },
-                            "right_thigh": {
-                                "$ref": "#/definitions/euler"
-                            },
-                            "right_shin": {
-                                "$ref": "#/definitions/euler"
+                            "r_wrist": {
+                                "$ref": "#/definitions/rotation"
                             }
                         },
                         "additionalProperties": false
@@ -83,6 +116,16 @@
         "version"
     ],
     "definitions": {
+        "rotation": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/euler"
+                },
+                {
+                    "$ref": "#/definitions/quaternion"
+                }
+            ]
+        },
         "euler": {
             "type": "object",
             "properties": {
@@ -96,7 +139,36 @@
                     "type": "number"
                 }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+                "x",
+                "y",
+                "z"
+            ]
+        },
+        "quaternion": {
+            "type": "object",
+            "properties": {
+                "w": {
+                    "type": "number"
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                }
+            },
+            "additionalProperties": false,
+            "required": [
+                "w",
+                "x",
+                "y",
+                "z"
+            ]
         }
     }
 }

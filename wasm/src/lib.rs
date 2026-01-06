@@ -1,5 +1,8 @@
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
 
+#[cfg(test)]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 pub mod animation;
 #[cfg(target_arch = "wasm32")]
 mod bench;
@@ -12,8 +15,6 @@ pub mod camera;
 
 #[cfg(target_arch = "wasm32")]
 pub mod editor;
-#[cfg(test)]
-pub mod generator;
 #[cfg(target_arch = "wasm32")]
 pub mod gpu;
 pub mod ik;

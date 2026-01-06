@@ -4,15 +4,15 @@ use glam::{Quat, Vec3A};
 /// Dirty flags for lazy forward kinematics evaluation.
 /// Uses a bitset where bit i corresponds to BoneId with index i.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct DirtyFlags(u16);
+pub struct DirtyFlags(u32);
 
-const fn compute_descendant_masks() -> [u16; BoneId::COUNT] {
-    let mut masks = [0u16; BoneId::COUNT];
+const fn compute_descendant_masks() -> [u32; BoneId::COUNT] {
+    let mut masks = [0u32; BoneId::COUNT];
     let mut i = 0;
     while i < BoneId::COUNT {
         // We are computing mask for bone 'i' (the ancestor)
         // Check every other bone 'j' to see if it is a descendant of 'i'
-        let mut mask: u16 = 0;
+        let mut mask: u32 = 0;
         let mut j = 0;
 
         while j < BoneId::COUNT {
@@ -50,7 +50,7 @@ const fn compute_descendant_masks() -> [u16; BoneId::COUNT] {
     masks
 }
 
-const DESCENDANT_MASKS: [u16; BoneId::COUNT] = compute_descendant_masks();
+const DESCENDANT_MASKS: [u32; BoneId::COUNT] = compute_descendant_masks();
 
 impl DirtyFlags {
     /// Create with all bones marked dirty

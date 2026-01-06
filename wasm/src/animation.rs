@@ -88,24 +88,31 @@ pub fn sample_animation(library: &AnimationLibrary, state: &PlaybackState) -> Ro
         None => return RotationPose::bind_pose(),
     };
 
-    // Direct O(1) array access
+    // 1. Try to get the specific exercise clip
     if let Some(clip) = library.get_clip(id) {
         return clip.sample(state.time);
     }
 
-    // Fallback if clip not loaded
+    // 2. Fallback to master placeholder if specific clip not loaded
+    if let Some(clip) = library.get_clip(AnimationId::Placeholder) {
+        return clip.sample(state.time);
+    }
+
+    // 3. Absolute fallback is bind pose
     RotationPose::bind_pose()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_bindgen_test::*;
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_empty_library_returns_bind_pose() {
         let library = AnimationLibrary::new();
         // Just pick first enum variant for testing
-        let state = PlaybackState::new(AnimationId::JumpingJacks);
+        let state = PlaybackState::new(AnimationId::PushUps);
 
         let pose = sample_animation(&library, &state);
         // Should return bind pose without panicking
@@ -113,23 +120,25 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_playback_advance() {
-        let state = PlaybackState::new(AnimationId::Lunges);
+        let state = PlaybackState::new(AnimationId::PushUps);
         let advanced = state.advance(1.5);
 
         assert_eq!(advanced.time, 1.5);
-        assert_eq!(advanced.exercise, Some(AnimationId::Lunges));
+        assert_eq!(advanced.exercise, Some(AnimationId::PushUps));
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_set_exercise_resets_time() {
         let state = PlaybackState {
-            exercise: Some(AnimationId::JumpingJacks),
+            exercise: Some(AnimationId::PushUps),
             time: 5.0,
         };
-        let changed = state.set_exercise(AnimationId::SquatJumps);
+        let changed = state.set_exercise(AnimationId::PushUps);
 
-        assert_eq!(changed.exercise, Some(AnimationId::SquatJumps));
+        assert_eq!(changed.exercise, Some(AnimationId::PushUps));
         assert_eq!(changed.time, 0.0);
     }
 }
@@ -150,23 +159,11 @@ impl App {
     /// Load an animation clip from JSON string
     /// Call this during startup for each exercise you want to animate
     pub fn load_animation(&mut self, id: AnimationId, json_data: String) -> Result<(), JsValue> {
-        // Parse into a generic Value first to check the version
-        let v: serde_json::Value = serde_json::from_str(&json_data)
+        // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
+        let clip = RotationAnimationClip::from_json(&json_data)
             .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
 
-        // Check version
-        let is_v2 = v.get("version").and_then(|val| val.as_u64()) == Some(2);
-
-        if is_v2 {
-            // Version 2: Rotation-based animation
-            // Use from_json helper because RotationAnimationClip doesn't impl Deserialize directly
-            let clip = RotationAnimationClip::from_json(&json_data)
-                .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
-
-            self.state.animation_library.add_clip(id, clip);
-        } else {
-            return Err(JsValue::from_str("Only version 2 animations are supported"));
-        }
+        self.state.animation_library.add_clip(id, clip);
 
         Ok(())
     }

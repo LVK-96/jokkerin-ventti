@@ -288,35 +288,13 @@ impl App {
                 pose.compute_all();
                 let cache = pose.cache.borrow();
                 use crate::bone::BoneId;
-                use glam::{Vec3, Vec3A};
+                
 
-                let hips = Vec3A::from(pose.root_position);
-                let left_hip_offset =
-                    cache.world_rotations[BoneId::Hips.index()] * Vec3::new(-0.02, -0.05, 0.0);
-                let right_hip_offset =
-                    cache.world_rotations[BoneId::Hips.index()] * Vec3::new(0.02, -0.05, 0.0);
-
-                let joints = [
-                    hips,                                                 // hips
-                    cache.world_positions[BoneId::Spine.index()],         // neck
-                    cache.world_positions[BoneId::Neck.index()],          // neck top
-                    cache.world_positions[BoneId::Head.index()],          // head
-                    cache.world_positions[BoneId::LeftShoulder.index()],  // left_shoulder
-                    cache.world_positions[BoneId::LeftUpperArm.index()],  // left_elbow
-                    cache.world_positions[BoneId::LeftForearm.index()],   // left_hand
-                    cache.world_positions[BoneId::RightShoulder.index()], // right_shoulder
-                    cache.world_positions[BoneId::RightUpperArm.index()], // right_elbow
-                    cache.world_positions[BoneId::RightForearm.index()],  // right_hand
-                    Vec3A::from(pose.root_position + left_hip_offset),    // left_hip
-                    cache.world_positions[BoneId::LeftThigh.index()],     // left_knee
-                    cache.world_positions[BoneId::LeftShin.index()],      // left_foot
-                    Vec3A::from(pose.root_position + right_hip_offset),   // right_hip
-                    cache.world_positions[BoneId::RightThigh.index()],    // right_knee
-                    cache.world_positions[BoneId::RightShin.index()],     // right_foot
-                ];
-
-                let mut positions = Vec::with_capacity(joints.len() * 2);
-                for joint in &joints {
+                let mut positions = Vec::with_capacity(BoneId::COUNT * 2);
+                
+                // Iterate over all bones in order of BoneId
+                for i in 0..BoneId::COUNT {
+                    let joint = cache.world_positions[i];
                     let world_pos = glam::Vec4::new(joint.x, joint.y, joint.z, 1.0);
                     let clip_pos = view_proj * world_pos;
 
@@ -376,44 +354,69 @@ fn apply_fk_to_target(
 }
 
 fn get_bone_and_chain(joint_index: usize) -> Option<(BoneId, Vec<BoneId>)> {
+    // Indices correspond to BoneId enum values
     match joint_index {
-        // IK Chains (End Effectors)
-        6 => Some((
-            BoneId::LeftForearm,
+        // Arm Chains (IK on Wrist)
+        20 => Some(( // LeftWrist
+            BoneId::LeftWrist,
             vec![
+                BoneId::LeftCollar,
                 BoneId::LeftShoulder,
-                BoneId::LeftUpperArm,
-                BoneId::LeftForearm,
+                BoneId::LeftElbow,
+                BoneId::LeftWrist,
             ],
         )),
-        9 => Some((
-            BoneId::RightForearm,
+        21 => Some(( // RightWrist
+            BoneId::RightWrist,
             vec![
+                BoneId::RightCollar,
                 BoneId::RightShoulder,
-                BoneId::RightUpperArm,
-                BoneId::RightForearm,
+                BoneId::RightElbow,
+                BoneId::RightWrist,
             ],
         )),
-        12 => Some((BoneId::LeftShin, vec![BoneId::LeftThigh, BoneId::LeftShin])),
-        15 => Some((
-            BoneId::RightShin,
-            vec![BoneId::RightThigh, BoneId::RightShin],
+        
+        // Leg Chains (IK on Foot/Ankle)
+        7 => Some(( // LeftAnkle - IK usually to Ankle
+             BoneId::LeftAnkle,
+             vec![BoneId::LeftHip, BoneId::LeftKnee, BoneId::LeftAnkle]
         )),
-        3 => Some((
+        10 => Some(( // LeftFoot - Extending chain
+             BoneId::LeftFoot,
+             vec![BoneId::LeftHip, BoneId::LeftKnee, BoneId::LeftAnkle, BoneId::LeftFoot]
+        )),
+        8 => Some(( // RightAnkle
+             BoneId::RightAnkle,
+             vec![BoneId::RightHip, BoneId::RightKnee, BoneId::RightAnkle]
+        )),
+        11 => Some(( // RightFoot
+             BoneId::RightFoot,
+             vec![BoneId::RightHip, BoneId::RightKnee, BoneId::RightAnkle, BoneId::RightFoot]
+        )),
+        
+        // Spine/Head Chain
+        15 => Some(( // Head
             BoneId::Head,
-            vec![BoneId::Spine, BoneId::Neck, BoneId::Head],
+            vec![BoneId::Spine1, BoneId::Spine2, BoneId::Spine3, BoneId::Neck, BoneId::Head],
         )),
-        1 => Some((BoneId::Spine, vec![BoneId::Spine])),
-        2 => Some((BoneId::Neck, vec![BoneId::Neck])),
-
-        // FK Bones (Intermediate Joints)
-        5 => Some((BoneId::LeftUpperArm, vec![])),
-        8 => Some((BoneId::RightUpperArm, vec![])),
-        4 => Some((BoneId::LeftShoulder, vec![])),
-        7 => Some((BoneId::RightShoulder, vec![])),
-        11 => Some((BoneId::LeftThigh, vec![])),
-        14 => Some((BoneId::RightThigh, vec![])),
-
+        
+        // Individual Bones (FK)
+        0 => None, // Pelvis (Root handled separately)
+        1 => Some((BoneId::LeftHip, vec![])),
+        2 => Some((BoneId::RightHip, vec![])),
+        3 => Some((BoneId::Spine1, vec![])),
+        4 => Some((BoneId::LeftKnee, vec![])),
+        5 => Some((BoneId::RightKnee, vec![])),
+        6 => Some((BoneId::Spine2, vec![])),
+        9 => Some((BoneId::Spine3, vec![])),
+        12 => Some((BoneId::Neck, vec![])),
+        13 => Some((BoneId::LeftCollar, vec![])),
+        14 => Some((BoneId::RightCollar, vec![])),
+        16 => Some((BoneId::LeftShoulder, vec![])),
+        17 => Some((BoneId::RightShoulder, vec![])),
+        18 => Some((BoneId::LeftElbow, vec![])),
+        19 => Some((BoneId::RightElbow, vec![])),
+        
         _ => None,
     }
 }

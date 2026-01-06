@@ -1,13 +1,13 @@
-use glam::Quat;
 use super::id::BoneId;
 use super::pose::RotationPose;
+use glam::Quat;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // Animation System
 // ============================================================================
 
-/// Euler angles in degrees for JSON authoring (more intuitive than quaternions)
+/// Euler angles for JSON representation
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
 pub struct EulerAngles {
     #[serde(default)]
@@ -28,13 +28,43 @@ impl EulerAngles {
             self.z.to_radians(),
         )
     }
-    /// Convert from quaternion (XYZ order)
+}
+
+/// Quaternion representation for JSON
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub struct QuaternionJson {
+    pub w: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl QuaternionJson {
+    pub fn to_quat(&self) -> Quat {
+        Quat::from_xyzw(self.x, self.y, self.z, self.w)
+    }
     pub fn from_quat(q: Quat) -> Self {
-        let (x, y, z) = q.to_euler(glam::EulerRot::XYZ);
-        Self {
-            x: x.to_degrees(),
-            y: y.to_degrees(),
-            z: z.to_degrees(),
+        let (x, y, z, w) = q.into();
+        Self { w, x, y, z }
+    }
+}
+
+/// A bone rotation can be specified as Euler angles or a Quaternion
+/// NOTE: Quaternion MUST be listed first in the enum because with #[serde(untagged)],
+/// serde tries variants in order. Since EulerAngles has all fields with #[serde(default)],
+/// it would incorrectly match quaternion JSON by ignoring the 'w' field.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BoneRotation {
+    Quaternion(QuaternionJson),
+    Euler(EulerAngles),
+}
+
+impl BoneRotation {
+    pub fn to_quat(&self) -> Quat {
+        match self {
+            BoneRotation::Euler(e) => e.to_quat(),
+            BoneRotation::Quaternion(q) => q.to_quat(),
         }
     }
 }
@@ -43,51 +73,53 @@ impl EulerAngles {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RotationPoseJson {
     /// Root position override (optional)
-    #[serde(default)]
+    #[serde(default, rename = "rp")]
     pub root_position: Option<[f32; 3]>,
 
-    /// Root/hips rotation
-    #[serde(default)]
-    pub hips: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub spine: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub neck: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub head: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub left_shoulder: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub left_upper_arm: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub left_forearm: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub right_shoulder: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub right_upper_arm: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub right_forearm: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub left_thigh: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub left_shin: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub right_thigh: Option<EulerAngles>,
-
-    #[serde(default)]
-    pub right_shin: Option<EulerAngles>,
+    #[serde(default, rename = "p")]
+    pub pelvis: Option<BoneRotation>,
+    #[serde(default, rename = "lh")]
+    pub l_hip: Option<BoneRotation>,
+    #[serde(default, rename = "rh")]
+    pub r_hip: Option<BoneRotation>,
+    #[serde(default, rename = "s1")]
+    pub spine1: Option<BoneRotation>,
+    #[serde(default, rename = "lk")]
+    pub l_knee: Option<BoneRotation>,
+    #[serde(default, rename = "rk")]
+    pub r_knee: Option<BoneRotation>,
+    #[serde(default, rename = "s2")]
+    pub spine2: Option<BoneRotation>,
+    #[serde(default, rename = "la")]
+    pub l_ankle: Option<BoneRotation>,
+    #[serde(default, rename = "ra")]
+    pub r_ankle: Option<BoneRotation>,
+    #[serde(default, rename = "s3")]
+    pub spine3: Option<BoneRotation>,
+    #[serde(default, rename = "lf")]
+    pub l_foot: Option<BoneRotation>,
+    #[serde(default, rename = "rf")]
+    pub r_foot: Option<BoneRotation>,
+    #[serde(default, rename = "n")]
+    pub neck: Option<BoneRotation>,
+    #[serde(default, rename = "lc")]
+    pub l_collar: Option<BoneRotation>,
+    #[serde(default, rename = "rc")]
+    pub r_collar: Option<BoneRotation>,
+    #[serde(default, rename = "h")]
+    pub head: Option<BoneRotation>,
+    #[serde(default, rename = "ls")]
+    pub l_shoulder: Option<BoneRotation>,
+    #[serde(default, rename = "rs")]
+    pub r_shoulder: Option<BoneRotation>,
+    #[serde(default, rename = "le")]
+    pub l_elbow: Option<BoneRotation>,
+    #[serde(default, rename = "re")]
+    pub r_elbow: Option<BoneRotation>,
+    #[serde(default, rename = "lw")]
+    pub l_wrist: Option<BoneRotation>,
+    #[serde(default, rename = "rw")]
+    pub r_wrist: Option<BoneRotation>,
 }
 
 impl RotationPoseJson {
@@ -101,47 +133,71 @@ impl RotationPoseJson {
         }
 
         // Apply rotations for each bone if specified
-        if let Some(euler) = self.hips {
-            pose.local_rotations[BoneId::Hips.index()] = euler.to_quat();
+        if let Some(rot) = self.pelvis {
+            pose.local_rotations[BoneId::Pelvis.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.spine {
-            pose.local_rotations[BoneId::Spine.index()] = euler.to_quat();
+        if let Some(rot) = self.l_hip {
+            pose.local_rotations[BoneId::LeftHip.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.neck {
-            pose.local_rotations[BoneId::Neck.index()] = euler.to_quat();
+        if let Some(rot) = self.r_hip {
+            pose.local_rotations[BoneId::RightHip.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.head {
-            pose.local_rotations[BoneId::Head.index()] = euler.to_quat();
+        if let Some(rot) = self.spine1 {
+            pose.local_rotations[BoneId::Spine1.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.left_shoulder {
-            pose.local_rotations[BoneId::LeftShoulder.index()] = euler.to_quat();
+        if let Some(rot) = self.l_knee {
+            pose.local_rotations[BoneId::LeftKnee.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.left_upper_arm {
-            pose.local_rotations[BoneId::LeftUpperArm.index()] = euler.to_quat();
+        if let Some(rot) = self.r_knee {
+            pose.local_rotations[BoneId::RightKnee.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.left_forearm {
-            pose.local_rotations[BoneId::LeftForearm.index()] = euler.to_quat();
+        if let Some(rot) = self.spine2 {
+            pose.local_rotations[BoneId::Spine2.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.right_shoulder {
-            pose.local_rotations[BoneId::RightShoulder.index()] = euler.to_quat();
+        if let Some(rot) = self.l_ankle {
+            pose.local_rotations[BoneId::LeftAnkle.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.right_upper_arm {
-            pose.local_rotations[BoneId::RightUpperArm.index()] = euler.to_quat();
+        if let Some(rot) = self.r_ankle {
+            pose.local_rotations[BoneId::RightAnkle.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.right_forearm {
-            pose.local_rotations[BoneId::RightForearm.index()] = euler.to_quat();
+        if let Some(rot) = self.spine3 {
+            pose.local_rotations[BoneId::Spine3.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.left_thigh {
-            pose.local_rotations[BoneId::LeftThigh.index()] = euler.to_quat();
+        if let Some(rot) = self.l_foot {
+            pose.local_rotations[BoneId::LeftFoot.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.left_shin {
-            pose.local_rotations[BoneId::LeftShin.index()] = euler.to_quat();
+        if let Some(rot) = self.r_foot {
+            pose.local_rotations[BoneId::RightFoot.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.right_thigh {
-            pose.local_rotations[BoneId::RightThigh.index()] = euler.to_quat();
+        if let Some(rot) = self.neck {
+            pose.local_rotations[BoneId::Neck.index()] = rot.to_quat();
         }
-        if let Some(euler) = self.right_shin {
-            pose.local_rotations[BoneId::RightShin.index()] = euler.to_quat();
+        if let Some(rot) = self.l_collar {
+            pose.local_rotations[BoneId::LeftCollar.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.r_collar {
+            pose.local_rotations[BoneId::RightCollar.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.head {
+            pose.local_rotations[BoneId::Head.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.l_shoulder {
+            pose.local_rotations[BoneId::LeftShoulder.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.r_shoulder {
+            pose.local_rotations[BoneId::RightShoulder.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.l_elbow {
+            pose.local_rotations[BoneId::LeftElbow.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.r_elbow {
+            pose.local_rotations[BoneId::RightElbow.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.l_wrist {
+            pose.local_rotations[BoneId::LeftWrist.index()] = rot.to_quat();
+        }
+        if let Some(rot) = self.r_wrist {
+            pose.local_rotations[BoneId::RightWrist.index()] = rot.to_quat();
         }
 
         pose
@@ -158,76 +214,37 @@ impl RotationPoseJson {
 
         let is_identity = |q: Quat| q.angle_between(Quat::IDENTITY) < 1e-4;
 
-        if !is_identity(pose.local_rotations[BoneId::Hips.index()]) {
-            json.hips = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::Hips.index()],
-            ));
+        macro_rules! map_bone {
+            ($id:expr, $field:ident) => {
+                if !is_identity(pose.local_rotations[$id.index()]) {
+                    let q = pose.local_rotations[$id.index()];
+                    json.$field = Some(BoneRotation::Quaternion(QuaternionJson::from_quat(q)));
+                }
+            };
         }
-        if !is_identity(pose.local_rotations[BoneId::Spine.index()]) {
-            json.spine = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::Spine.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::Neck.index()]) {
-            json.neck = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::Neck.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::Head.index()]) {
-            json.head = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::Head.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::LeftShoulder.index()]) {
-            json.left_shoulder = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::LeftShoulder.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::LeftUpperArm.index()]) {
-            json.left_upper_arm = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::LeftUpperArm.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::LeftForearm.index()]) {
-            json.left_forearm = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::LeftForearm.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::RightShoulder.index()]) {
-            json.right_shoulder = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::RightShoulder.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::RightUpperArm.index()]) {
-            json.right_upper_arm = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::RightUpperArm.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::RightForearm.index()]) {
-            json.right_forearm = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::RightForearm.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::LeftThigh.index()]) {
-            json.left_thigh = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::LeftThigh.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::LeftShin.index()]) {
-            json.left_shin = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::LeftShin.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::RightThigh.index()]) {
-            json.right_thigh = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::RightThigh.index()],
-            ));
-        }
-        if !is_identity(pose.local_rotations[BoneId::RightShin.index()]) {
-            json.right_shin = Some(EulerAngles::from_quat(
-                pose.local_rotations[BoneId::RightShin.index()],
-            ));
-        }
+
+        map_bone!(BoneId::Pelvis, pelvis);
+        map_bone!(BoneId::LeftHip, l_hip);
+        map_bone!(BoneId::RightHip, r_hip);
+        map_bone!(BoneId::Spine1, spine1);
+        map_bone!(BoneId::LeftKnee, l_knee);
+        map_bone!(BoneId::RightKnee, r_knee);
+        map_bone!(BoneId::Spine2, spine2);
+        map_bone!(BoneId::LeftAnkle, l_ankle);
+        map_bone!(BoneId::RightAnkle, r_ankle);
+        map_bone!(BoneId::Spine3, spine3);
+        map_bone!(BoneId::LeftFoot, l_foot);
+        map_bone!(BoneId::RightFoot, r_foot);
+        map_bone!(BoneId::Neck, neck);
+        map_bone!(BoneId::LeftCollar, l_collar);
+        map_bone!(BoneId::RightCollar, r_collar);
+        map_bone!(BoneId::Head, head);
+        map_bone!(BoneId::LeftShoulder, l_shoulder);
+        map_bone!(BoneId::RightShoulder, r_shoulder);
+        map_bone!(BoneId::LeftElbow, l_elbow);
+        map_bone!(BoneId::RightElbow, r_elbow);
+        map_bone!(BoneId::LeftWrist, l_wrist);
+        map_bone!(BoneId::RightWrist, r_wrist);
 
         json
     }
@@ -243,7 +260,9 @@ pub struct RotationKeyframe {
 /// JSON format for keyframe
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RotationKeyframeJson {
+    #[serde(rename = "t")]
     pub time: f32,
+    #[serde(rename = "p")]
     pub pose: RotationPoseJson,
 }
 
@@ -260,10 +279,13 @@ pub struct RotationAnimationClip {
 pub struct RotationAnimationClipJson {
     #[serde(rename = "$schema", default, skip_deserializing)]
     pub schema: Option<String>,
-    #[serde(default = "default_version")]
+    #[serde(default = "default_version", rename = "v")]
     pub version: u32,
+    #[serde(rename = "n")]
     pub name: String,
+    #[serde(rename = "d")]
     pub duration: f32,
+    #[serde(rename = "kf")]
     pub keyframes: Vec<RotationKeyframeJson>,
 }
 
@@ -276,7 +298,7 @@ impl RotationAnimationClip {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let clip_json: RotationAnimationClipJson = serde_json::from_str(json)?;
 
-        let keyframes = clip_json
+        let keyframes: Vec<RotationKeyframe> = clip_json
             .keyframes
             .into_iter()
             .map(|kf| RotationKeyframe {

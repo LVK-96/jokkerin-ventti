@@ -99,8 +99,7 @@ impl Camera {
     pub fn right_axis(&self) -> Vec3 {
         let eye = self.eye_position();
         let forward = (CAMERA_TARGET - eye).normalize_or_zero();
-        let right = forward.cross(Vec3::Y).normalize_or_zero();
-        // Return X axis if degenerate (looking straight up/down)
+        let right = forward.cross(Vec3::Y).normalize_or_zero(); // Return X axis if degenerate (looking straight up/down)
         if right.length_squared() < 0.5 {
             Vec3::X
         } else {

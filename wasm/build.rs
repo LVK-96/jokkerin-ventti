@@ -1,45 +1,45 @@
 use heck::ToPascalCase;
+use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+#[derive(Deserialize)]
+struct Workout {
+    exercises: Vec<Exercise>,
+}
+
+#[derive(Deserialize)]
+struct Exercise {
+    name: String,
+}
 
 fn main() {
-    // Rerun if assets change
+    // Rerun if workout schema or animations change
+    println!("cargo:rerun-if-changed=../src/assets/Workouts/jokkeri_ventti.json");
     println!("cargo:rerun-if-changed=../src/assets/animations");
 
-    // Path to animations dir
+    // Path to workout dir
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let assets_dir = Path::new(&manifest_dir).join("../src/assets/animations");
+    let workout_file = Path::new(&manifest_dir).join("../src/assets/Workouts/jokkeri_ventti.json");
 
-    // Read all JSON files
-    let mut files: Vec<PathBuf> = fs::read_dir(&assets_dir)
-        .expect("Failed to read animations directory")
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Sort to ensure stable ID generation
-    files.sort();
+    let workout_data = fs::read_to_string(workout_file).expect("Failed to read workout JSON");
+    let workout: Workout =
+        serde_json::from_str(&workout_data).expect("Failed to parse workout JSON");
 
     // Generate enum variants
     let mut variants = String::new();
-    let mut count = 0;
 
-    for (i, path) in files.iter().enumerate() {
-        let filename = path.file_stem().unwrap().to_str().unwrap();
-        // Convert snake_case filename to PascalCase variant
-        let variant_name = filename.to_pascal_case();
+    // Always add placeholder as the first variant (ID 0)
+    variants.push_str("    Placeholder = 0,\n");
 
-        // Special case handling if names start with digits (not allowed in Rust)
-        // Check if first char is digit, if so prepend 'N' or similar?
-        // Our files seem safe, but let's be safe.
+    let mut count = 1;
+
+    for exercise in workout.exercises {
+        // Convert names like "Ab Crunch" -> "AbCrunch" for enum variant
+        let variant_name = exercise.name.to_pascal_case();
+
+        // Handle names that result in illegal identifiers
         let variant_name = if variant_name
             .chars()
             .next()
@@ -50,7 +50,7 @@ fn main() {
             variant_name
         };
 
-        variants.push_str(&format!("    {} = {},\n", variant_name, i));
+        variants.push_str(&format!("    {} = {},\n", variant_name, count));
         count += 1;
     }
 
@@ -85,7 +85,6 @@ impl AnimationId {{
     );
 
     // Write to separated file
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dest_path = Path::new(&manifest_dir).join("src/bone/anim_ids.rs");
     fs::write(&dest_path, content).expect("Failed to write anim_ids.rs");
 }

@@ -18,8 +18,8 @@ const CAMERA_POS: vec3<f32> = vec3<f32>(2.5, 1.2, 3.0);
 
 
 // Bone matrices
-// 29 matrices: 13 cylinders + 1 head + 15 debug spheres = 29
-@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 29>;
+// 44 matrices for SMPL: 22 bone transforms + 22 debug joint spheres
+@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 44>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -101,13 +101,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular = pow(ndoth, 80.0) * 0.7;
 
     // === Color Palette ===
-    // Debug joints (indices 14-27): pink/magenta
-    // Debug joints (indices 14-27): pink/magenta
-    // Head (13): treated as normal bone
-    if (in.bone_index >= 14.0 && in.bone_index <= 28.0) {
-        return vec4<f32>(1.0, 0.0, 1.0, 1.0);
-    }
-
     // Base color: very dark (nearly black with subtle blue)
     let base_color = vec3<f32>(0.02, 0.02, 0.04);
 

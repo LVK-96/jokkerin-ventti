@@ -1,57 +1,26 @@
-//! Shared skeleton constants used by both build.rs and runtime code.
-//!
-//! This module is included by both the build script and the main skeleton module
-//! to ensure consistency between compile-time validation and runtime behavior.
-
-// Some constants are only used by build.rs for validation
-#![allow(dead_code)]
-
+// Generated from placeholder.fbx
+// Base mapping: Blender Z (Up) -> Game Y (Up), Blender Y (Forward) -> Game -Z (Back)
 use glam::Vec3A;
 
-/// Default skeleton pose - the standard T-pose used as reference for bone lengths.
-/// All keyframe animations should maintain these bone lengths (±tolerance).
-/// Y positions are raised by 0.05 to prevent feet clipping into floor.
-pub const DEFAULT_HIPS: Vec3A = Vec3A::new(0.0, 0.55, 0.0);
-pub const DEFAULT_NECK: Vec3A = Vec3A::new(0.0, 1.05, 0.0);
-pub const DEFAULT_HEAD: Vec3A = Vec3A::new(0.0, 1.20, 0.0);
-pub const DEFAULT_LEFT_SHOULDER: Vec3A = Vec3A::new(-0.02, 1.05, 0.0);
-pub const DEFAULT_LEFT_ELBOW: Vec3A = Vec3A::new(-0.18, 0.93, 0.0);
-pub const DEFAULT_LEFT_HAND: Vec3A = Vec3A::new(-0.35, 0.80, 0.0);
-pub const DEFAULT_RIGHT_SHOULDER: Vec3A = Vec3A::new(0.02, 1.05, 0.0);
-pub const DEFAULT_RIGHT_ELBOW: Vec3A = Vec3A::new(0.18, 0.93, 0.0);
-pub const DEFAULT_RIGHT_HAND: Vec3A = Vec3A::new(0.35, 0.80, 0.0);
-pub const DEFAULT_LEFT_HIP: Vec3A = Vec3A::new(-0.02, 0.50, 0.0);
-pub const DEFAULT_LEFT_KNEE: Vec3A = Vec3A::new(-0.15, 0.35, 0.0);
-pub const DEFAULT_LEFT_FOOT: Vec3A = Vec3A::new(-0.15, 0.05, 0.0);
-pub const DEFAULT_RIGHT_HIP: Vec3A = Vec3A::new(0.02, 0.50, 0.0);
-pub const DEFAULT_RIGHT_KNEE: Vec3A = Vec3A::new(0.15, 0.35, 0.0);
-pub const DEFAULT_RIGHT_FOOT: Vec3A = Vec3A::new(0.15, 0.05, 0.0);
-
-/// Expected bone lengths derived from the default skeleton pose (in meters).
-/// These are the target lengths that animation keyframes should match.
-pub struct BoneLengths {
-    pub spine: f32,     // hips → neck (single spine bone now)
-    pub head_neck: f32, // neck → head
-    pub clavicle: f32,  // neck → shoulder
-    pub upper_arm: f32, // shoulder → elbow
-    pub forearm: f32,   // elbow → hand
-    pub pelvis: f32,    // hips → hip joint
-    pub thigh: f32,     // hip → knee
-    pub shin: f32,      // knee → foot
-}
-
-impl BoneLengths {
-    /// Calculate expected bone lengths from the default skeleton pose constants.
-    pub fn from_default() -> Self {
-        Self {
-            spine: DEFAULT_HIPS.distance(DEFAULT_NECK),
-            head_neck: DEFAULT_NECK.distance(DEFAULT_HEAD),
-            clavicle: DEFAULT_NECK.distance(DEFAULT_LEFT_SHOULDER),
-            upper_arm: DEFAULT_LEFT_SHOULDER.distance(DEFAULT_LEFT_ELBOW),
-            forearm: DEFAULT_LEFT_ELBOW.distance(DEFAULT_LEFT_HAND),
-            pelvis: DEFAULT_HIPS.distance(DEFAULT_LEFT_HIP),
-            thigh: DEFAULT_LEFT_HIP.distance(DEFAULT_LEFT_KNEE),
-            shin: DEFAULT_LEFT_KNEE.distance(DEFAULT_LEFT_FOOT),
-        }
-    }
-}
+pub const DEFAULT_PELVIS: Vec3A = Vec3A::new(-0.002, -0.191, 0.028);
+pub const DEFAULT_LEFT_HIP: Vec3A = Vec3A::new(0.081, -0.281, 0.025);
+pub const DEFAULT_RIGHT_HIP: Vec3A = Vec3A::new(-0.081, -0.281, 0.025);
+pub const DEFAULT_SPINE1: Vec3A = Vec3A::new(0.000, -0.097, 0.032);
+pub const DEFAULT_LEFT_KNEE: Vec3A = Vec3A::new(0.100, -0.658, 0.015);
+pub const DEFAULT_RIGHT_KNEE: Vec3A = Vec3A::new(-0.098, -0.658, 0.015);
+pub const DEFAULT_SPINE2: Vec3A = Vec3A::new(0.000, 0.026, 0.029);
+pub const DEFAULT_LEFT_ANKLE: Vec3A = Vec3A::new(0.101, -1.056, -0.037);
+pub const DEFAULT_RIGHT_ANKLE: Vec3A = Vec3A::new(-0.097, -1.056, -0.037);
+pub const DEFAULT_SPINE3: Vec3A = Vec3A::new(0.000, 0.106, 0.005);
+pub const DEFAULT_LEFT_FOOT: Vec3A = Vec3A::new(0.114, -1.128, 0.105);
+pub const DEFAULT_RIGHT_FOOT: Vec3A = Vec3A::new(-0.109, -1.128, 0.105);
+pub const DEFAULT_NECK: Vec3A = Vec3A::new(0.000, 0.302, -0.015);
+pub const DEFAULT_LEFT_COLLAR: Vec3A = Vec3A::new(0.055, 0.225, -0.020);
+pub const DEFAULT_RIGHT_COLLAR: Vec3A = Vec3A::new(-0.055, 0.225, -0.020);
+pub const DEFAULT_HEAD: Vec3A = Vec3A::new(0.000, 0.398, -0.016);
+pub const DEFAULT_LEFT_SHOULDER: Vec3A = Vec3A::new(0.165, 0.237, -0.017);
+pub const DEFAULT_RIGHT_SHOULDER: Vec3A = Vec3A::new(-0.165, 0.237, -0.017);
+pub const DEFAULT_LEFT_ELBOW: Vec3A = Vec3A::new(0.433, 0.249, -0.030);
+pub const DEFAULT_RIGHT_ELBOW: Vec3A = Vec3A::new(-0.433, 0.249, -0.030);
+pub const DEFAULT_LEFT_WRIST: Vec3A = Vec3A::new(0.702, 0.253, -0.043);
+pub const DEFAULT_RIGHT_WRIST: Vec3A = Vec3A::new(-0.702, 0.253, -0.043);
