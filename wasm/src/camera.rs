@@ -120,8 +120,10 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_bindgen_test::*;
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_default_camera_above_floor() {
         let camera = Camera::default();
         let eye = camera.eye_position();
@@ -135,6 +137,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_camera_rotation_clamping() {
         let camera = Camera::default();
 
@@ -151,6 +154,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_view_matrix_looks_at_target() {
         let camera = Camera::default();
         let view = camera.view_matrix();

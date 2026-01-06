@@ -213,6 +213,7 @@ mod tests {
         }
     }
 
+    #[test]
     #[wasm_bindgen_test]
     fn test_fast_identity_transpose() {
         let mat = Mat4::IDENTITY;
@@ -220,6 +221,7 @@ mod tests {
         assert_matrix_approx_eq(mat, transposed);
     }
 
+    #[test]
     #[wasm_bindgen_test]
     fn test_fast_transpose() {
         let mut rng = rand::rng();
@@ -232,6 +234,7 @@ mod tests {
         }
     }
 
+    #[test]
     #[wasm_bindgen_test]
     fn test_fast_identity_multiply() {
         let a = Mat4::from_cols_array(&[1.0; 16]);
@@ -240,6 +243,7 @@ mod tests {
         assert_matrix_approx_eq(a, multiplied);
     }
 
+    #[test]
     #[wasm_bindgen_test]
     fn test_fast_multiply() {
         let mut rng = rand::rng();

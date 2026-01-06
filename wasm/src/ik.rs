@@ -62,8 +62,10 @@ pub fn solve_fabrik(
 mod tests {
     use super::*;
     use glam::Vec3;
+    use wasm_bindgen_test::*;
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_fabrik_reachable_target() {
         // 2-joint chain (1 bone) reaching a target exactly at distance length
         let joints = vec![Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0)];
@@ -79,6 +81,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_fabrik_unreachable_target() {
         // Target beyond max reach
         let joints = vec![
@@ -99,6 +102,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_fabrik_multi_joint_chain() {
         // 3-joint arm (2 bones) reaching target
         let joints = vec![
@@ -120,6 +124,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_fabrik_single_joint() {
         // Edge case with 1 joint
         let joints = vec![Vec3::ZERO];
@@ -133,6 +138,7 @@ mod tests {
     }
 
     #[test]
+    #[wasm_bindgen_test]
     fn test_fabrik_preserves_base() {
         let joints = vec![Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0)];
         let lengths = vec![1.0];
