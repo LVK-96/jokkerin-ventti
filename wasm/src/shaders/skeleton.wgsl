@@ -87,12 +87,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // SSS color - light that scatters takes on material color
     // Using a subtle warm/red tint like subsurface blood or internal glow
-    let sss_color = vec3<f32>(0.15, 0.08, 0.05);  // Deep warm glow
+    // Linear values (will be gamma corrected)
+    let sss_color = vec3<f32>(0.02, 0.006, 0.003);  // Deep warm glow (linear)
     let sss_intensity = transmittance * (1.0 - thickness) * 0.8;
 
     // --- Fresnel Rim (edge glow) ---
     let fresnel = pow(1.0 - ndotv, 3.0);
-    let rim_color = vec3<f32>(0.12, 0.15, 0.25);  // Cool blue edge
+    let rim_color = vec3<f32>(0.012, 0.02, 0.055);  // Cool blue edge (linear)
     let rim = fresnel * 0.4;
 
     // --- Specular (tight highlight) ---
@@ -102,7 +103,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // === Color Palette ===
     // Base color: very dark (nearly black with subtle blue)
-    let base_color = vec3<f32>(0.02, 0.02, 0.04);
+    // These are LINEAR values that will be gamma-corrected later.
+    // To get sRGB ~0.02 after gamma, we need linear ~0.0003 (pow(0.02, 2.2))
+    let base_color = vec3<f32>(0.0003, 0.0003, 0.0006);
 
     // === Final Composition ===
     var lit_color = base_color;
@@ -122,5 +125,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Tone mapping (preserve contrast)
     lit_color = lit_color / (lit_color + vec3<f32>(0.3));
 
-    return vec4<f32>(lit_color, 1.0);
+    // Manual gamma correction (linear to sRGB)
+    // This ensures consistent colors whether the surface format is sRGB or linear.
+    // sRGB gamma is approximately pow(x, 1/2.2), but the exact formula is:
+    // x <= 0.0031308: 12.92 * x
+    // x > 0.0031308: 1.055 * pow(x, 1/2.4) - 0.055
+    // For simplicity and performance, we use the approximation.
+    let gamma = 1.0 / 2.2;
+    let gamma_corrected = pow(lit_color, vec3<f32>(gamma));
+
+    return vec4<f32>(gamma_corrected, 1.0);
 }

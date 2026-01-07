@@ -120,5 +120,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Mix background with grid lines (grid also fades out at horizon)
     let final_color = mix(current_bg, grid_color, combined * grid_fade);
 
-    return vec4<f32>(final_color, 1.0);
+    // Manual gamma correction (linear to sRGB)
+    // Ensures consistent colors across WebGPU and WebGL backends.
+    let gamma = 1.0 / 2.2;
+    let gamma_corrected = pow(final_color, vec3<f32>(gamma));
+
+    return vec4<f32>(gamma_corrected, 1.0);
 }

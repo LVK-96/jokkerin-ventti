@@ -147,7 +147,17 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
 
     // Configure surface
     let surface_caps = surface.get_capabilities(&adapter);
-    let surface_format = surface_caps.formats[0];
+
+    // Force LINEAR (non-sRGB) format for consistent color handling.
+    // This avoids double-gamma issues: sRGB formats auto-apply gamma,
+    // but we apply manual gamma in shaders for cross-backend consistency (WebGL does not support sRGB surface).
+    // So we prefer a linear format and let shaders handle gamma.
+    let surface_format = surface_caps
+        .formats
+        .iter()
+        .find(|f| !f.is_srgb()) // Prefer non-sRGB (linear)
+        .copied()
+        .unwrap_or(surface_caps.formats[0]);
 
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
