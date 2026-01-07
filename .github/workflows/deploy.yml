@@ -25,8 +25,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -44,6 +44,19 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run Tests
+        run: npm run test
+
+      - name: Run Rust Tests (Host)
+        working-directory: wasm
+        run: |
+          HOST_TARGET=$(rustc -vV | sed -n 's|host: ||p')
+          cargo test --target $HOST_TARGET
+
+      - name: Run Rust Tests (WASM, headless chrome)
+        working-directory: wasm
+        run: wasm-pack test --headless --chrome
 
       - name: Cache build
         id: cache-build
