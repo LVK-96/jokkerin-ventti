@@ -21,9 +21,19 @@ let cameraEnabled = true;
 // Sensitivity settings
 const KEYBOARD_SPEED = 0.03;     // Radians per frame when key held
 const MOUSE_SENSITIVITY = 0.005; // Radians per pixel dragged
+const WHEEL_ZOOM_SENSITIVITY = 0.002;  // Distance units per wheel delta
+const PINCH_ZOOM_SENSITIVITY = 0.01;   // Distance units per pixel change
 
 // Track which keys are pressed
 const keysPressed: Set<string> = new Set();
+
+// Multi-pointer tracking for pinch-to-zoom
+interface PointerState {
+    x: number;
+    y: number;
+}
+const activePointers: Map<number, PointerState> = new Map();
+let lastPinchDistance: number | null = null;
 
 /**
  * Enable or disable camera controls
@@ -33,6 +43,8 @@ export function setCameraEnabled(enabled: boolean): void {
     if (!enabled) {
         keysPressed.clear();
         isDragging = false;
+        activePointers.clear();
+        lastPinchDistance = null;
     }
 }
 
@@ -55,14 +67,15 @@ export function initCameraControls(canvas: HTMLCanvasElement, wasmApp: App): voi
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
 
-    // Mouse events on canvas
+    // Pointer events on canvas (unified mouse + touch handling)
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointerleave', onPointerUp);
-    canvas.addEventListener('pointercancel', (e) => {
-        onPointerUp(e);
-    });
+    canvas.addEventListener('pointercancel', onPointerUp);
+
+    // Mouse wheel for zoom
+    canvas.addEventListener('wheel', onWheel, { passive: false });
 
     // Apply initial camera position (state initialized in Rust)
     app.sync_camera();
@@ -112,10 +125,26 @@ export function updateCameraFromInput(): void {
 
 // --- Event Handlers ---
 
+const KEYBOARD_ZOOM_SPEED = 0.2; // Distance units per keypress
+
 function onKeyDown(e: KeyboardEvent): void {
-    if (!cameraEnabled) return;
+    if (!cameraEnabled || !app) return;
+
+    // Arrow keys for rotation
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         keysPressed.add(e.key);
+        e.preventDefault();
+    }
+
+    // +/- keys for zoom
+    if (e.key === '+' || e.key === '=') {
+        app.zoom_camera(KEYBOARD_ZOOM_SPEED);
+        app.sync_camera();
+        e.preventDefault();
+    }
+    if (e.key === '-' || e.key === '_') {
+        app.zoom_camera(-KEYBOARD_ZOOM_SPEED);
+        app.sync_camera();
         e.preventDefault();
     }
 }
@@ -137,22 +166,56 @@ const DEADZONE = 10;
 function onPointerDown(e: PointerEvent): void {
     if (!cameraEnabled) return;
 
-    isDragging = true;
+    // Track this pointer
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-    if (e.pointerType === 'touch') {
-        touchStartX = e.clientX;
-        touchStartY = e.clientY;
+    if (activePointers.size === 1) {
+        // Single pointer: setup for rotation
+        isDragging = true;
+        if (e.pointerType === 'touch') {
+            touchStartX = e.clientX;
+            touchStartY = e.clientY;
+            rotationVelocityX = 0;
+            rotationVelocityY = 0;
+        } else {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        }
+    } else if (activePointers.size === 2) {
+        // Two pointers: switch to pinch mode
+        isDragging = false;  // Stop rotation
         rotationVelocityX = 0;
         rotationVelocityY = 0;
-    } else {
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
+        lastPinchDistance = getPinchDistance();
     }
 }
 
 function onPointerMove(e: PointerEvent): void {
-    if (!isDragging || !app) return;
+    if (!cameraEnabled || !app) return;
+
+    // Update tracked pointer position
+    const tracked = activePointers.get(e.pointerId);
+    if (tracked) {
+        tracked.x = e.clientX;
+        tracked.y = e.clientY;
+    }
+
+    // Pinch-to-zoom mode (2 pointers)
+    if (activePointers.size === 2 && lastPinchDistance !== null) {
+        const currentDistance = getPinchDistance();
+        const delta = (currentDistance - lastPinchDistance) * PINCH_ZOOM_SENSITIVITY;
+
+        if (Math.abs(delta) > 0.001) {
+            app.zoom_camera(delta);
+            app.sync_camera();
+            lastPinchDistance = currentDistance;
+        }
+        return;  // Skip rotation during pinch
+    }
+
+    // Single pointer rotation mode
+    if (!isDragging) return;
 
     if (e.pointerType === 'touch') {
         // Joystick Logic
@@ -185,10 +248,39 @@ function onPointerMove(e: PointerEvent): void {
 }
 
 function onPointerUp(e: PointerEvent): void {
-    isDragging = false;
-    rotationVelocityX = 0;
-    rotationVelocityY = 0;
+    activePointers.delete(e.pointerId);
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+
+    // Exit pinch mode when fewer than 2 pointers
+    if (activePointers.size < 2) {
+        lastPinchDistance = null;
+    }
+
+    // Fully released
+    if (activePointers.size === 0) {
+        isDragging = false;
+        rotationVelocityX = 0;
+        rotationVelocityY = 0;
+    }
+}
+
+function getPinchDistance(): number {
+    const pointers = Array.from(activePointers.values());
+    if (pointers.length < 2) return 0;
+
+    const dx = pointers[1].x - pointers[0].x;
+    const dy = pointers[1].y - pointers[0].y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function onWheel(e: WheelEvent): void {
+    if (!cameraEnabled || !app) return;
+    e.preventDefault();
+
+    // deltaY is typically ~100 for a single wheel notch
+    const delta = -e.deltaY * WHEEL_ZOOM_SENSITIVITY;
+    app.zoom_camera(delta);
+    app.sync_camera();
 }
 
 /**

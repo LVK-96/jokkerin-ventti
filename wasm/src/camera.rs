@@ -7,6 +7,10 @@ use wasm_bindgen::prelude::*;
 const MIN_UP_DOT: f32 = 0.05; // Camera must be at least slightly above target
 const MAX_UP_DOT: f32 = 0.98; // Don't allow looking straight down
 
+/// Zoom distance limits
+const MIN_DISTANCE: f32 = 1.5; // Minimum zoom (closest)
+const MAX_DISTANCE: f32 = 10.0; // Maximum zoom (farthest)
+
 /// Target point for orbit camera (center of stickman)
 pub const CAMERA_TARGET: Vec3 = Vec3::new(0.0, 0.5, 0.0);
 
@@ -83,6 +87,17 @@ impl Camera {
             } else {
                 self // Reject rotation
             }
+        }
+    }
+
+    /// Compute new camera with zoom applied
+    ///
+    /// Positive delta zooms in (decreases distance), negative zooms out.
+    /// Distance is clamped to [MIN_DISTANCE, MAX_DISTANCE].
+    pub fn with_zoom(self, delta: f32) -> Camera {
+        Camera {
+            distance: (self.distance - delta).clamp(MIN_DISTANCE, MAX_DISTANCE),
+            ..self
         }
     }
 
@@ -165,6 +180,24 @@ mod tests {
             assert!(!val.is_nan(), "View matrix should not contain NaN");
         }
     }
+
+    #[test]
+    #[wasm_bindgen_test]
+    fn test_camera_zoom_clamping() {
+        let camera = Camera::default();
+
+        // Zoom in past minimum
+        let zoomed = camera.with_zoom(100.0);
+        assert_eq!(zoomed.distance, MIN_DISTANCE);
+
+        // Zoom out past maximum
+        let zoomed = camera.with_zoom(-100.0);
+        assert_eq!(zoomed.distance, MAX_DISTANCE);
+
+        // Normal zoom in
+        let zoomed = camera.with_zoom(1.0);
+        assert!(zoomed.distance < camera.distance);
+    }
 }
 
 // App methods for camera control
@@ -206,5 +239,12 @@ impl App {
     /// Get the camera's right axis (for vertical input rotation)
     pub fn get_camera_right_axis(&self) -> Vec<f32> {
         self.state.camera.right_axis().to_array().to_vec()
+    }
+
+    /// Zoom the camera by adjusting distance from target
+    ///
+    /// Positive delta = zoom in (closer), negative = zoom out (farther)
+    pub fn zoom_camera(&mut self, delta: f32) {
+        self.state.camera = self.state.camera.with_zoom(delta);
     }
 }

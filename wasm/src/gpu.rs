@@ -133,11 +133,18 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
         .map_err(|_| JsValue::from_str("Failed to find GPU adapter"))?;
 
     // Request device and queue
+    // Use appropriate limits based on backend
+    let required_limits = if force_webgl {
+        wgpu::Limits::downlevel_webgl2_defaults()
+    } else {
+        wgpu::Limits::default()
+    };
+
     let (device, queue): (wgpu::Device, wgpu::Queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("Main Device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+            required_limits,
             memory_hints: Default::default(),
             experimental_features: Default::default(),
             trace: wgpu::Trace::Off,
@@ -147,6 +154,19 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
 
     // Configure surface
     let surface_caps = surface.get_capabilities(&adapter);
+
+    // Clamp dimensions to device's max texture size (WebGL2 on mobile often has 2048 limit)
+    // Use device limits which reflect actual enforced limits, not advertised adapter limits
+    let max_dim = device.limits().max_texture_dimension_2d;
+    log::info!(
+        "Max texture dimension: {}, canvas: {}x{}",
+        max_dim,
+        width,
+        height
+    );
+    let width = width.min(max_dim);
+    let height = height.min(max_dim);
+    log::info!("Clamped surface size: {}x{}", width, height);
 
     // Force LINEAR (non-sRGB) format for consistent color handling.
     // This avoids double-gamma issues: sRGB formats auto-apply gamma,
@@ -501,10 +521,17 @@ impl App {
             .map_err(|_| JsValue::from_str("Not a canvas"))?;
 
         let (width, height) = get_canvas_size(&window, &canvas);
+
+        let gpu = &mut self.state.gpu;
+
+        // Clamp dimensions to device's max texture size (WebGL2 on mobile often has 2048 limit)
+        let max_dim = gpu.device.limits().max_texture_dimension_2d;
+        let width = width.min(max_dim);
+        let height = height.min(max_dim);
+
         canvas.set_width(width);
         canvas.set_height(height);
 
-        let gpu = &mut self.state.gpu;
         // Update surface configuration
         gpu.config.width = width;
         gpu.config.height = height;
