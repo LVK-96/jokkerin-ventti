@@ -13,7 +13,7 @@ export class UIController {
     private exerciseNameEl: HTMLElement | null;
     private setCountEl: HTMLElement | null;
     private textSizeSlider: HTMLInputElement | null;
-    
+
     // State for text resizing
     private elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
 
@@ -34,7 +34,7 @@ export class UIController {
 
     private initTextResizing() {
         if (this.textSizeSlider) {
-             this.textSizeSlider.addEventListener('input', () => this.updateTextSize());
+            this.textSizeSlider.addEventListener('input', () => this.updateTextSize());
         }
     }
 
@@ -64,7 +64,7 @@ export class UIController {
         if (this.timerEl) this.timerEl.hidden = false;
         if (this.prevButton) this.prevButton.hidden = false;
         if (this.nextButton) this.nextButton.hidden = false;
-        
+
         // Text sizing logic
         this.updateTextSizes(0);
         this.resetElementsWithText();
@@ -74,24 +74,24 @@ export class UIController {
 
     public reset() {
         if (this.startButton) {
-             this.startButton.hidden = false;
+            this.startButton.hidden = false;
         }
         if (this.progressBarContainer) this.progressBarContainer.hidden = true;
         if (this.progressBar) this.progressBar.hidden = true;
         if (this.timerEl) this.timerEl.hidden = true;
         if (this.prevButton) this.prevButton.hidden = true;
         if (this.nextButton) this.nextButton.hidden = true;
-        
+
         if (this.exerciseCountEl) this.exerciseCountEl.innerText = '';
         if (this.setCountEl) this.setCountEl.innerText = '';
         if (this.exerciseNameEl) {
             // Original code set this to first exercise name on reset if available
             // but we'll let the main controller handle that via update() or manual set.
         }
-        
+
         document.body.style.backgroundColor = '#ffffff';
     }
-    
+
     public update(state: WorkoutState, exercises: Exercise[]) {
         const currentExercise = exercises[state.exerciseIndex];
 
@@ -100,8 +100,8 @@ export class UIController {
             return;
         }
 
-        const nextExerciseName = (state.exerciseIndex < exercises.length - 1) 
-            ? exercises[state.exerciseIndex + 1].name 
+        const nextExerciseName = (state.exerciseIndex < exercises.length - 1)
+            ? exercises[state.exerciseIndex + 1].name
             : null;
 
         // Colors
@@ -110,42 +110,42 @@ export class UIController {
         // Progress Bar & Timer
         let timerText = '';
         if (state.phase === WorkoutPhase.Rest) {
-             timerText = `${state.pauseTimer}`;
-             if (this.progressBar) {
-                 const percentage = (state.pauseTimer / currentExercise.pauseTime) * 100;
-                 this.progressBar.style.width = `${percentage}%`;
-                 this.progressBar.style.backgroundColor = '#ff9800'; // Orange
-             }
+            timerText = `${state.pauseTimer}`;
+            if (this.progressBar) {
+                const percentage = (state.pauseTimer / currentExercise.pauseTime) * 100;
+                this.progressBar.style.width = `${percentage}%`;
+                this.progressBar.style.backgroundColor = '#ff9800'; // Orange
+            }
         } else {
-             // Ready or Workout
-             timerText = `${state.workoutTimer}`;
-             if (this.progressBar) {
-                 const total = currentExercise.workoutTime;
-                 const percentage = ((total - state.workoutTimer) / total) * 100;
-                 this.progressBar.style.width = `${percentage}%`;
-                 this.progressBar.style.backgroundColor = '#4caf50'; // Green
-             }
+            // Ready or Workout
+            timerText = `${state.workoutTimer}`;
+            if (this.progressBar) {
+                const total = currentExercise.workoutTime;
+                const percentage = ((total - state.workoutTimer) / total) * 100;
+                this.progressBar.style.width = `${percentage}%`;
+                this.progressBar.style.backgroundColor = '#4caf50'; // Green
+            }
         }
         if (this.timerEl) this.timerEl.innerText = timerText;
 
         // Text
         if (this.exerciseCountEl && this.exerciseNameEl) {
             if (state.phase === WorkoutPhase.Ready) {
-                 this.exerciseCountEl.innerText = 'Next';
-                 this.exerciseNameEl.innerText = currentExercise.name;
+                this.exerciseCountEl.innerText = 'Next';
+                this.exerciseNameEl.innerText = currentExercise.name;
             } else if (state.phase === WorkoutPhase.Rest && state.setIndex === currentExercise.setCount && nextExerciseName) {
-                 this.exerciseCountEl.innerText = 'Next';
-                 this.exerciseNameEl.innerText = nextExerciseName;
+                this.exerciseCountEl.innerText = 'Next';
+                this.exerciseNameEl.innerText = nextExerciseName;
             } else {
-                 this.exerciseCountEl.innerText = `Exercise ${state.exerciseIndex + 1} of ${exercises.length}`;
-                 this.exerciseNameEl.innerText = currentExercise.name;
+                this.exerciseCountEl.innerText = `Exercise ${state.exerciseIndex + 1} of ${exercises.length}`;
+                this.exerciseNameEl.innerText = currentExercise.name;
             }
         }
 
         if (this.setCountEl) {
-             this.setCountEl.innerText = `Set ${state.setIndex} of ${currentExercise.setCount}`;
+            this.setCountEl.innerText = `Set ${state.setIndex} of ${currentExercise.setCount}`;
         }
-        
+
         // Buttons
         if (this.prevButton) this.prevButton.disabled = state.exerciseIndex <= 0;
         if (this.nextButton) this.nextButton.disabled = state.exerciseIndex >= exercises.length - 1;
@@ -154,20 +154,20 @@ export class UIController {
     private updateColors(state: WorkoutState) {
         const COLOR_REST = '#ffe7cd';
         const COLOR_WORKOUT = '#d7ffce';
-        
+
         let color = '#ffffff';
         if (state.phase === WorkoutPhase.Ready) {
-             color = COLOR_WORKOUT;
+            color = COLOR_WORKOUT;
         } else if (state.phase === WorkoutPhase.Rest) {
-             color = COLOR_REST;
+            color = COLOR_REST;
         } else if (state.phase === WorkoutPhase.Workout) {
-             color = state.workoutTimer > 0 ? COLOR_WORKOUT : COLOR_REST;
+            color = state.workoutTimer > 0 ? COLOR_WORKOUT : COLOR_REST;
         }
         document.body.style.backgroundColor = color;
     }
 
     private showFinished(totalExercises: number) {
-        if (this.exerciseCountEl) this.exerciseCountEl.innerText = `Exercise ${totalExercises} of ${totalExercises}`; 
+        if (this.exerciseCountEl) this.exerciseCountEl.innerText = `Exercise ${totalExercises} of ${totalExercises}`;
         if (this.exerciseNameEl) this.exerciseNameEl.innerText = 'Workout Done';
         if (this.timerEl) this.timerEl.innerText = '';
         if (this.setCountEl) this.setCountEl.innerText = '';
@@ -175,45 +175,112 @@ export class UIController {
         if (this.nextButton) { this.nextButton.disabled = true; this.nextButton.hidden = true; }
         document.body.style.backgroundColor = '#ffffff';
     }
-    
+
     // Text Resizing Helpers
     private storeElementsWithText() {
         this.elementsWithText = Array.from(document.querySelectorAll('#timer, #exercise-name, #set-count, #exercise-count'))
-        .filter((element): element is HTMLElement => {
-            return element instanceof HTMLElement;
-        })
-        .map((element) => {
-            const computedStyle = window.getComputedStyle(element);
-            const originalSize = parseFloat(computedStyle.getPropertyValue('font-size'));
-            return { element, originalSize };
-        });
+            .filter((element): element is HTMLElement => {
+                return element instanceof HTMLElement;
+            })
+            .map((element) => {
+                const computedStyle = window.getComputedStyle(element);
+                const originalSize = parseFloat(computedStyle.getPropertyValue('font-size'));
+                return { element, originalSize };
+            });
     }
-    
+
     private resetElementsWithText() {
         this.elementsWithText = [];
     }
-    
+
     private updateTextSizes(percentage: number) {
-         this.elementsWithText.forEach(({ element, originalSize }) => {
+        this.elementsWithText.forEach(({ element, originalSize }) => {
             const newSize = originalSize * (1 + percentage / 100);
             element.style.fontSize = newSize + 'px';
         });
     }
-    
+
     public updateTextSize() {
         if (this.textSizeSlider) {
             const val = parseInt(this.textSizeSlider.value);
             this.updateTextSizes(val);
         }
     }
-    
+
     public toggleTextSizeSlider() {
-         if (this.textSizeSlider) {
-             this.textSizeSlider.hidden = !this.textSizeSlider.hidden;
-         }
+        if (this.textSizeSlider) {
+            this.textSizeSlider.hidden = !this.textSizeSlider.hidden;
+        }
     }
 
     public isStartButtonHidden(): boolean {
         return this.startButton ? this.startButton.hidden : true;
+    }
+
+    // --- System UI (FPS & Errors) ---
+
+    private fpsElement: HTMLElement | null = null;
+
+    public createFpsCounter() {
+        if (this.fpsElement) return;
+
+        this.fpsElement = document.createElement('div');
+        this.fpsElement.id = 'fps-counter';
+        this.fpsElement.style.cssText = `
+            position: fixed;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ffcc00;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 9999;
+            display: none;
+        `;
+        this.fpsElement.textContent = '-- FPS';
+        document.body.appendChild(this.fpsElement);
+    }
+
+    public setFpsVisible(visible: boolean) {
+        if (!this.fpsElement) this.createFpsCounter();
+        if (this.fpsElement) {
+            this.fpsElement.style.display = visible ? 'block' : 'none';
+        }
+    }
+
+    public updateFps(fps: number, avgFrameTime: string) {
+        if (this.fpsElement && this.fpsElement.style.display !== 'none') {
+            this.fpsElement.textContent = `${fps} FPS | ${avgFrameTime}ms`;
+        }
+    }
+
+    public showFatalError(title: string, message: string, detail?: string) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            font-family: sans-serif;
+            text-align: center;
+            padding: 20px;
+        `;
+        overlay.innerHTML = `
+            <h2 style="color: #ff5555; margin-bottom: 10px;">${title}</h2>
+            <p style="font-size: 1.1em; max-width: 600px; line-height: 1.5;">${message}</p>
+            ${detail ? `
+            <div style="margin-top: 20px; padding: 10px; background: #333; border-radius: 4px; font-family: monospace; font-size: 0.8em; color: #aaa;">
+                ${detail}
+            </div>` : ''}
+        `;
+        document.body.appendChild(overlay);
     }
 }

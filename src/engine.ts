@@ -2,6 +2,8 @@ import init, { init_gpu, App } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { initCameraControls, updateCameraFromInput } from './camera';
 
 export type UpdateCallback = (delta: number, app: App) => void;
+export type StatsCallback = (fps: number, avgFrameTime: string) => void;
+export type ErrorCallback = (error: unknown, title: string) => void;
 
 export class WebGPUEngine {
     private app: App | null = null;
@@ -9,16 +11,24 @@ export class WebGPUEngine {
     private lastTime = 0;
     private initialized = false;
     private onUpdate: UpdateCallback | null = null;
+    private onStats: StatsCallback | null = null;
+    private onError: ErrorCallback | null = null;
     private canvasId: string;
 
     // FPS counter state
-    private fpsElement: HTMLElement | null = null;
     private frameCount = 0;
     private fpsLastUpdate = 0;
-    private showFps = true;
 
     constructor(canvasId: string) {
         this.canvasId = canvasId;
+    }
+
+    public setStatsCallback(cb: StatsCallback) {
+        this.onStats = cb;
+    }
+
+    public setErrorCallback(cb: ErrorCallback) {
+        this.onError = cb;
     }
 
     /**
@@ -62,36 +72,9 @@ export class WebGPUEngine {
                 } catch (e2) {
                     console.error('WebGL fallback also failed:', e2);
 
-                    // Show user-friendly error message
-                    const container = document.body;
-                    const errorOverlay = document.createElement('div');
-                    errorOverlay.style.cssText = `
-                        position: fixed;
-                        top: 0; left: 0; width: 100%; height: 100%;
-                        background: rgba(0,0,0,0.85);
-                        color: white;
-                        display: flex;
-                        flex-direction: column;
-                        justify-content: center;
-                        align-items: center;
-                        z-index: 10000;
-                        font-family: sans-serif;
-                        text-align: center;
-                        padding: 20px;
-                    `;
-                    errorOverlay.innerHTML = `
-                        <h2 style="color: #ff5555; margin-bottom: 10px;">Graphics Initialization Failed</h2>
-                        <p style="font-size: 1.1em; max-width: 600px; line-height: 1.5;">
-                            Your browser or device does not appear to support WebGPU or WebGL 2.
-                            <br><br>
-                            Please try a newer browser (Chrome, Edge, Firefox) or check your hardware drivers.
-                        </p>
-                        <div style="margin-top: 20px; padding: 10px; background: #333; border-radius: 4px; font-family: monospace; font-size: 0.8em; color: #aaa;">
-                            ${String(e2)}
-                        </div>
-                    `;
-                    container.appendChild(errorOverlay);
-
+                    if (this.onError) {
+                        this.onError(e2, "Graphics Initialization Failed");
+                    }
                     throw e2;
                 }
             }
@@ -113,9 +96,6 @@ export class WebGPUEngine {
                 }
             });
 
-            // Create FPS counter element
-            this.createFpsCounter();
-
             this.initialized = true;
         } catch (e) {
             console.error('WebGPU initialization failed:', e);
@@ -128,48 +108,6 @@ export class WebGPUEngine {
      */
     get wasmApp(): App | null {
         return this.app;
-    }
-
-    /**
-     * Create FPS counter DOM element
-     */
-    private createFpsCounter(): void {
-        this.fpsElement = document.createElement('div');
-        this.fpsElement.id = 'fps-counter';
-        this.fpsElement.style.cssText = `
-            position: fixed;
-            bottom: 8px;
-            right: 8px;
-            background: rgba(0, 0, 0, 0.6);
-            color: #ffcc00;
-            font-family: monospace;
-            font-size: 14px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: none;
-            outline: none;
-            box-shadow: none;
-            text-shadow: none;
-            -webkit-text-stroke: 0;
-            z-index: 9999;
-            pointer-events: none;
-        `;
-        this.fpsElement.textContent = '-- FPS';
-        document.body.appendChild(this.fpsElement);
-
-        if (!this.showFps) {
-            this.fpsElement.style.display = 'none';
-        }
-    }
-
-    /**
-     * Toggle FPS counter visibility
-     */
-    setFpsVisible(visible: boolean): void {
-        this.showFps = visible;
-        if (this.fpsElement) {
-            this.fpsElement.style.display = visible ? 'block' : 'none';
-        }
     }
 
     /**
@@ -218,9 +156,11 @@ export class WebGPUEngine {
         if (fpsDelta >= 1000) {
             const fps = Math.round((this.frameCount * 1000) / fpsDelta);
             const avgFrameTime = (fpsDelta / this.frameCount).toFixed(1);
-            if (this.fpsElement) {
-                this.fpsElement.textContent = `${fps} FPS | ${avgFrameTime}ms`;
+
+            if (this.onStats) {
+                this.onStats(fps, avgFrameTime);
             }
+
             this.frameCount = 0;
             this.fpsLastUpdate = time;
         }
@@ -231,7 +171,7 @@ export class WebGPUEngine {
             // Update time uniform in Rust
             this.app.advance_time(delta);
 
-            // Update camera from keyboard input
+            // Update camera from input
             updateCameraFromInput();
 
             // Run custom update logic (e.g., skeleton playback or editor session)

@@ -11,11 +11,10 @@ describe('animation maps', () => {
         expect(resolveAnimationId('Ab Crunch')).toBe(AnimationId.AbCrunch);
     });
 
-    it('animationData should have JSON content for IDs', () => {
-        const id = AnimationId.JumpingJacks;
-        const json = animationData[id];
-        expect(typeof json).toBe('string');
-        // Basic check if it looks like JSON
-        expect(json?.trim().startsWith('{')).toBe(true);
+    it('animationData should have URL for IDs', () => {
+        const id = AnimationId.PushUps;
+        const url = animationData[id];
+        expect(typeof url).toBe('string');
+        expect(url.length).toBeGreaterThan(0);
     });
 });
