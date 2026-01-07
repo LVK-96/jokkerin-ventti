@@ -28,6 +28,7 @@ wasm-bindgen-test = "0.3.56"
 
 [dependencies.wgpu]
 version = "28.0"
+features = ["webgl"]
 
 [features]
 portable_simd = []

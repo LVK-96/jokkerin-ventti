@@ -1,14 +1,19 @@
 body {
-    font-family: 'Arial', sans-serif;
-    text-align: center;
     margin: 10px;
     background-color: white;
+}
+
+/* UI container with outlined text */
+.app-ui {
+    font-family: 'Arial', sans-serif;
+    text-align: center;
     /* White outline for text readability */
     text-shadow:
         -1px -1px 0 white,
         1px -1px 0 white,
         -1px 1px 0 white,
         1px 1px 0 white;
+    /* Inherit full height/width behavior if needed, generally driven by overlay */
 }
 
 /* Container for the layout */

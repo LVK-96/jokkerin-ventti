@@ -1,4 +1,4 @@
-import init, { init_gpu, log, App } from '../wasm/pkg/jokkerin_ventti_wasm';
+import init, { init_gpu, App } from '../wasm/pkg/jokkerin_ventti_wasm';
 import { initCameraControls, updateCameraFromInput } from './camera';
 
 export type UpdateCallback = (delta: number, app: App) => void;
@@ -31,9 +31,71 @@ export class WebGPUEngine {
             // Initialize wasm-bindgen runtime
             await init();
 
-            // Initialize WebGPU from Rust - returns App instance
-            this.app = await init_gpu(this.canvasId);
-            console.log(`WebGPU initialized on canvas '${this.canvasId}'`);
+            // Detect if WebGPU is available to decide initial attempt
+            const hasWebGPU = 'gpu' in navigator;
+            let app: App;
+
+            try {
+                // Try WebGPU first unless it's definitely missing
+                const forceWebGL = !hasWebGPU;
+                if (!hasWebGPU) {
+                    console.log('WebGPU not detected, defaulting to WebGL');
+                }
+                app = await init_gpu(this.canvasId, forceWebGL);
+                console.log(`Graphics initialized via ${forceWebGL ? 'WebGL' : 'WebGPU'}`);
+            } catch (e) {
+                // If WebGPU failed (even if checking navigator.gpu passed), try forcing WebGL
+                console.warn('WebGPU initialization failed, attempting fallback to WebGL:', e);
+
+                // CRITICAL: The failed WebGPU attempt might have locked the canvas context.
+                // We must recreate the canvas element to get a fresh context for WebGL.
+                const oldCanvas = document.getElementById(this.canvasId);
+                if (oldCanvas && oldCanvas.parentNode) {
+                    const newCanvas = oldCanvas.cloneNode(true) as HTMLCanvasElement;
+                    oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+                    console.log('Recreated canvas element to clear context locks.');
+                }
+
+                try {
+                    app = await init_gpu(this.canvasId, true);
+                    console.log('Fallback to WebGL successful');
+                } catch (e2) {
+                    console.error('WebGL fallback also failed:', e2);
+
+                    // Show user-friendly error message
+                    const container = document.body;
+                    const errorOverlay = document.createElement('div');
+                    errorOverlay.style.cssText = `
+                        position: fixed;
+                        top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.85);
+                        color: white;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 10000;
+                        font-family: sans-serif;
+                        text-align: center;
+                        padding: 20px;
+                    `;
+                    errorOverlay.innerHTML = `
+                        <h2 style="color: #ff5555; margin-bottom: 10px;">Graphics Initialization Failed</h2>
+                        <p style="font-size: 1.1em; max-width: 600px; line-height: 1.5;">
+                            Your browser or device does not appear to support WebGPU or WebGL 2.
+                            <br><br>
+                            Please try a newer browser (Chrome, Edge, Firefox) or check your hardware drivers.
+                        </p>
+                        <div style="margin-top: 20px; padding: 10px; background: #333; border-radius: 4px; font-family: monospace; font-size: 0.8em; color: #aaa;">
+                            ${String(e2)}
+                        </div>
+                    `;
+                    container.appendChild(errorOverlay);
+
+                    throw e2;
+                }
+            }
+            this.app = app;
 
             // Initialize camera controls
             const canvas = document.getElementById(this.canvasId) as HTMLCanvasElement;
@@ -132,7 +194,7 @@ export class WebGPUEngine {
         this.fpsLastUpdate = this.lastTime;
         this.frameCount = 0;
         this.loop(this.lastTime);
-        log('Animation loop started');
+        console.log('Animation loop started');
     }
 
     /**
@@ -142,7 +204,7 @@ export class WebGPUEngine {
         if (this.animationId !== null) {
             cancelAnimationFrame(this.animationId);
             this.animationId = null;
-            log('Animation loop stopped');
+            console.log('Animation loop stopped');
         }
     }
 

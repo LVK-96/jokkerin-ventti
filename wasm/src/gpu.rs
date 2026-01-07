@@ -79,7 +79,7 @@ fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement
 /// wasm_bindgen + pub async fn
 /// -> Generates a promise for JS, returns App instance owned by JavaScript
 #[wasm_bindgen]
-pub async fn init_gpu(canvas_id: String) -> Result<crate::state::App, JsValue> {
+pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::state::App, JsValue> {
     // Set up panic hook for better error messages in browser console
     console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Info).ok();
@@ -104,8 +104,15 @@ pub async fn init_gpu(canvas_id: String) -> Result<crate::state::App, JsValue> {
     // 3. Adapter: The physical graphics card (stateless, describes capabilities)
     // 4. Device: The logical connection to the card (stateful, creates resources)
     // 5. Queue: The command queue for submitting work to the GPU
+    let backends = if force_webgl {
+        wgpu::Backends::GL
+    } else {
+        wgpu::Backends::all()
+    };
+
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::BROWSER_WEBGPU,
+        // Use manually selected backend to avoid crashes on unsupported platforms
+        backends,
         ..Default::default()
     });
 
@@ -118,6 +125,7 @@ pub async fn init_gpu(canvas_id: String) -> Result<crate::state::App, JsValue> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
+            // Be compatible with both WebGPU and WebGL surfaces
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         })

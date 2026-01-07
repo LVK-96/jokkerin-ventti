@@ -95,13 +95,6 @@ impl App {
         self.update_bone_uniforms(&matrices);
     }
 }
-
-/// Log to browser console
-#[wasm_bindgen]
-pub fn log(msg: &str) {
-    log::info!("{}", msg);
-}
-
 /// Simple test function
 #[wasm_bindgen]
 pub fn add(a: i32, b: i32) -> i32 {
