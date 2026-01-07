@@ -1,4 +1,5 @@
 use crate::bone::{AnimationId, RotationAnimationClip, RotationPose};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// Animation library - loaded once, read-only during playback

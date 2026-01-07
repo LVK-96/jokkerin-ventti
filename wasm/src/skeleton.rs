@@ -484,3 +484,63 @@ pub fn compute_aligned_matrix(
 pub fn compute_offset_matrix(b_center: Vec3A, c_center: Vec3A) -> glam::Mat4 {
     glam::Mat4::from_translation(Vec3::from(c_center - b_center))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_bind_pose_mesh_validity() {
+        let vertices = generate_bind_pose_mesh();
+
+        // Basic validity
+        // Bounds check (roughly)
+        // 21 cylinders + 1 head sphere + 22 joint spheres
+        // Each cylinder (12 segments): (12*2 body + 12*2 caps) = 48 tris = 144 vertices
+        // Spine chain (5) + Arms (4*2) + Legs (4*2) = 21 cylinders.
+        // 21 * 144 = 3024 vertices.
+        // Sphere (16 lat * 24 lon * 2 tris) = 768 tris = 2304 vertices.
+        // Debug joints (22) = 22 * 2304 = 50688 vertices.
+        // Total should be around 56k vertices.
+        assert!(!vertices.is_empty(), "Mesh should not be empty");
+        // Let's just check it's substantial.
+        assert!(vertices.len() > 10_000);
+        assert_eq!(
+            vertices.len() % 3,
+            0,
+            "Vertex count must be multiple of 3 (triangles)"
+        );
+
+        // Check normals are normalized
+        for v in &vertices {
+            let n = Vec3::from_array(v.normal);
+            let len = n.length();
+            assert!(
+                (len - 1.0).abs() < 0.01,
+                "Normal length should be approx 1.0, got {}",
+                len
+            );
+
+            // Bone index should be within reason
+            assert!(v.bone_index < 50, "Bone index out of range");
+        }
+    }
+
+    #[test]
+    fn test_aligned_matrix() {
+        let start = Vec3A::ZERO;
+        let end = Vec3A::X; // aligned with X
+
+        let target_start = Vec3A::new(10.0, 0.0, 0.0);
+        let target_end = Vec3A::new(10.0, 1.0, 0.0); // Now pointing Y
+
+        let mat = compute_aligned_matrix(start, end, target_start, target_end);
+
+        // Transform the local X unit vector (the cylinder axis)
+        let transformed_vector = mat.transform_vector3(Vec3::X);
+
+        // It shoud roughly point +Y now
+        assert!((transformed_vector.y - 1.0).abs() < 0.001);
+        assert!(transformed_vector.x.abs() < 0.001);
+    }
+}
