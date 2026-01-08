@@ -79,7 +79,7 @@ jobs:
 
       # Using the script ensures we use the exact flags defined in package.json
       - name: Build WASM
-        run: npm run build:wasm
+        run: npm run build:wasm:prod
 
       - name: Upload WASM Package
         uses: actions/upload-artifact@v4
