@@ -364,7 +364,7 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             conservative: false,
         },
         depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
@@ -429,10 +429,25 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             conservative: false,
         },
         depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
             depth_write_enabled: false, // Don't write depth (shadow is on floor)
             depth_compare: wgpu::CompareFunction::Less,
-            stencil: wgpu::StencilState::default(),
+            stencil: wgpu::StencilState {
+                front: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual, // Draw if stencil != reference (1 != 0 -> Pass)
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Replace, // Set stencil to reference (1)
+                },
+                back: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Replace,
+                },
+                read_mask: 0xFF,
+                write_mask: 0xFF,
+            },
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
@@ -455,7 +470,7 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
         mip_level_count: 1,
         sample_count: MSAA_SAMPLE_COUNT,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth24Plus,
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
@@ -544,7 +559,7 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             conservative: false,
         },
         depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
@@ -655,7 +670,7 @@ impl App {
             mip_level_count: 1,
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
@@ -780,7 +795,10 @@ impl App {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
-                    stencil_ops: None,
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
@@ -798,6 +816,7 @@ impl App {
             render_pass.set_bind_group(0, &gpu.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, &gpu.bone_bind_group, &[]);
             render_pass.set_vertex_buffer(0, gpu.vertex_buffer.slice(..));
+            render_pass.set_stencil_reference(1);
             render_pass.draw(0..gpu.vertex_count, 0..1);
 
             // Draw skinned mesh

@@ -12,7 +12,7 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 44>;
+@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 22>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,

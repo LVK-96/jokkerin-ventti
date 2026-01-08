@@ -289,37 +289,6 @@ impl RotationPose {
 
         // Head Sphere
         matrices[idx] = compute_offset_matrix(DEFAULT_HEAD, head);
-        idx += 1;
-
-        // Debug Joints (22 joints)
-        for bone_id in BoneId::ALL {
-            let def_pos = match bone_id {
-                BoneId::Pelvis => DEFAULT_PELVIS,
-                BoneId::LeftHip => DEFAULT_LEFT_HIP,
-                BoneId::RightHip => DEFAULT_RIGHT_HIP,
-                BoneId::Spine1 => DEFAULT_SPINE1,
-                BoneId::LeftKnee => DEFAULT_LEFT_KNEE,
-                BoneId::RightKnee => DEFAULT_RIGHT_KNEE,
-                BoneId::Spine2 => DEFAULT_SPINE2,
-                BoneId::LeftAnkle => DEFAULT_LEFT_ANKLE,
-                BoneId::RightAnkle => DEFAULT_RIGHT_ANKLE,
-                BoneId::Spine3 => DEFAULT_SPINE3,
-                BoneId::LeftFoot => DEFAULT_LEFT_FOOT,
-                BoneId::RightFoot => DEFAULT_RIGHT_FOOT,
-                BoneId::Neck => DEFAULT_NECK,
-                BoneId::LeftCollar => DEFAULT_LEFT_COLLAR,
-                BoneId::RightCollar => DEFAULT_RIGHT_COLLAR,
-                BoneId::Head => DEFAULT_HEAD,
-                BoneId::LeftShoulder => DEFAULT_LEFT_SHOULDER,
-                BoneId::RightShoulder => DEFAULT_RIGHT_SHOULDER,
-                BoneId::LeftElbow => DEFAULT_LEFT_ELBOW,
-                BoneId::RightElbow => DEFAULT_RIGHT_ELBOW,
-                BoneId::LeftWrist => DEFAULT_LEFT_WRIST,
-                BoneId::RightWrist => DEFAULT_RIGHT_WRIST,
-            };
-            matrices[idx] = compute_offset_matrix(def_pos, pos!(bone_id));
-            idx += 1;
-        }
 
         matrices
     }

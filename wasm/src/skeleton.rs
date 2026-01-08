@@ -34,9 +34,9 @@ pub struct SkinnedVertex {
 }
 
 // Total number of renderable parts (bones)
-// 21 cylinders (segments) + 1 head sphere + 22 debug joint spheres = 44
+// 21 cylinders (segments) + 1 head sphere = 22
 // Just an estimate for buffer reservation, exact count not critical for constant but good for optimization
-pub const RENDER_BONE_COUNT: usize = 44;
+pub const RENDER_BONE_COUNT: usize = 22;
 
 /// Number of segments for cylinder geometry
 pub const CYLINDER_SEGMENTS: usize = 12;
@@ -51,6 +51,18 @@ fn add_cylinder(
     end: Vec3A,
     radius: f32,
     bone_idx: u32,
+) {
+    add_cylinder_caps(vertices, start, end, radius, bone_idx, true, true);
+}
+
+fn add_cylinder_caps(
+    vertices: &mut Vec<SkinnedVertex>,
+    start: Vec3A,
+    end: Vec3A,
+    radius: f32,
+    bone_idx: u32,
+    start_cap: bool,
+    end_cap: bool,
 ) {
     let dir = (end - start).normalize();
     let length = start.distance(end);
@@ -120,57 +132,89 @@ fn add_cylinder(
         });
     }
 
-    // Caps (simple flat fan)
-    // Start cap
-    let center_start = start;
-    let normal_start = -dir;
-    for i in 0..segments {
-        let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
-        let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
-        let (p1, _) = get_point(a1, 0.0, radius);
-        let (p2, _) = get_point(a2, 0.0, radius);
+    // define basis for caps (same as cylinder body)
+    // right and up are already defined. dir is the axis.
 
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(center_start).to_array(),
-            normal: Vec3::from(normal_start).to_array(),
-            bone_index: bone_idx,
-        });
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(p2).to_array(),
-            normal: Vec3::from(normal_start).to_array(),
-            bone_index: bone_idx,
-        });
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(p1).to_array(),
-            normal: Vec3::from(normal_start).to_array(),
-            bone_index: bone_idx,
-        });
+    // Helper for cap vertex generation
+    let add_cap_ring = |vertices: &mut Vec<SkinnedVertex>,
+                        center: Vec3A,
+                        forward: Vec3A, // Normal direction of the pole (e.g. dir for end cap, -dir for start cap)
+                        radius: f32| {
+        let rings = SPHERE_LAT_SEGMENTS / 2; // Hemisphere
+        let slices = CYLINDER_SEGMENTS;
+
+        for r in 0..rings {
+            let lat1 = (r as f32 / rings as f32) * (std::f32::consts::PI / 2.0);
+            let lat2 = ((r + 1) as f32 / rings as f32) * (std::f32::consts::PI / 2.0);
+
+            let y1 = lat1.sin(); // height along forward axis (0 to 1)
+            let r1 = lat1.cos(); // radius at this height (1 to 0)
+            let y2 = lat2.sin();
+            let r2 = lat2.cos();
+
+            for s in 0..slices {
+                let lon1 = (s as f32 / slices as f32) * std::f32::consts::TAU;
+                let lon2 = ((s + 1) as f32 / slices as f32) * std::f32::consts::TAU;
+
+                // Function to compute vertex pos and normal
+                // vertex = center + (right*cos(lon) + up*sin(lon))*r_scale*radius + forward*y_scale*radius
+                let get_cap_vertex = |lat_r: f32, lat_y: f32, lon: f32| -> (Vec3A, Vec3A) {
+                    let (sin_lon, cos_lon) = lon.sin_cos();
+                    let radial = right * cos_lon + up * sin_lon; // vector in disk plane
+                    let local_p = radial * (lat_r * radius) + forward * (lat_y * radius);
+                    let normal = local_p.normalize();
+                    (center + local_p, normal)
+                };
+
+                let (p1, n1) = get_cap_vertex(r1, y1, lon1);
+                let (p2, n2) = get_cap_vertex(r1, y1, lon2);
+                let (p3, n3) = get_cap_vertex(r2, y2, lon1);
+                let (p4, n4) = get_cap_vertex(r2, y2, lon2);
+
+                // Two triangles
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p1).to_array(),
+                    normal: Vec3::from(n1).to_array(),
+                    bone_index: bone_idx,
+                });
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p3).to_array(),
+                    normal: Vec3::from(n3).to_array(),
+                    bone_index: bone_idx,
+                });
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p2).to_array(),
+                    normal: Vec3::from(n2).to_array(),
+                    bone_index: bone_idx,
+                });
+
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p2).to_array(),
+                    normal: Vec3::from(n2).to_array(),
+                    bone_index: bone_idx,
+                });
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p3).to_array(),
+                    normal: Vec3::from(n3).to_array(),
+                    bone_index: bone_idx,
+                });
+                vertices.push(SkinnedVertex {
+                    position: Vec3::from(p4).to_array(),
+                    normal: Vec3::from(n4).to_array(),
+                    bone_index: bone_idx,
+                });
+            }
+        }
+    };
+
+    // Start Cap (Hemisphere pointing backwards)
+    if start_cap {
+        add_cap_ring(vertices, start, -dir, radius);
     }
 
-    // End cap
-    let center_end = start + dir * valid_len;
-    let normal_end = dir;
-    for i in 0..segments {
-        let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
-        let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
-        let (p1, _) = get_point(a1, valid_len, radius);
-        let (p2, _) = get_point(a2, valid_len, radius);
-
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(center_end).to_array(),
-            normal: Vec3::from(normal_end).to_array(),
-            bone_index: bone_idx,
-        });
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(p1).to_array(),
-            normal: Vec3::from(normal_end).to_array(),
-            bone_index: bone_idx,
-        });
-        vertices.push(SkinnedVertex {
-            position: Vec3::from(p2).to_array(),
-            normal: Vec3::from(normal_end).to_array(),
-            bone_index: bone_idx,
-        });
+    // End Cap (Hemisphere pointing forwards)
+    if end_cap {
+        add_cap_ring(vertices, start + dir * valid_len, dir, radius);
     }
 }
 
@@ -290,7 +334,23 @@ pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
         idx,
     );
     idx += 1;
-    add_cylinder(&mut vertices, DEFAULT_NECK, DEFAULT_HEAD, BONE_RADIUS, idx);
+    // Neck -> Head
+    // Shorten the neck so it connects to the base of the head sphere (surface)
+    // instead of the center, to avoid visual artifacts inside the head.
+    let neck_dir = (DEFAULT_HEAD - DEFAULT_NECK).normalize();
+    // Stop slightly inside the head to ensure connection (0.8 * radius)
+    let neck_end = DEFAULT_HEAD - neck_dir * (HEAD_RADIUS * 0.8);
+
+    // Disable end cap (false) to avoid it protruding into the head sphere
+    add_cylinder_caps(
+        &mut vertices,
+        DEFAULT_NECK,
+        neck_end,
+        BONE_RADIUS,
+        idx,
+        true,
+        false,
+    );
     idx += 1;
 
     // Left Arm chain (4 cylinders)
@@ -431,9 +491,10 @@ pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
 
     // Head Sphere (1 sphere)
     add_sphere(&mut vertices, DEFAULT_HEAD, HEAD_RADIUS, idx);
-    idx += 1;
+    // idx += 1; // Last part, no need to increment
 
-    // Debug joints (22 spheres, one per bone)
+    // Debug joints (22 spheres) - REMOVED
+    /*
     let all_defaults = [
         DEFAULT_PELVIS,
         DEFAULT_LEFT_HIP,
@@ -463,6 +524,7 @@ pub fn generate_bind_pose_mesh() -> Vec<SkinnedVertex> {
         add_sphere(&mut vertices, default_pos, JOINT_RADIUS, idx);
         idx += 1;
     }
+    */
 
     vertices
 }

@@ -18,8 +18,9 @@ const CAMERA_POS: vec3<f32> = vec3<f32>(2.5, 1.2, 3.0);
 
 
 // Bone matrices
-// 44 matrices for SMPL: 22 bone transforms + 22 debug joint spheres
-@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 44>;
+// Bone matrices
+// 22 matrices (22 bones, debug spheres removed)
+@group(1) @binding(0) var<uniform> bone_matrices: array<mat4x4<f32>, 22>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -58,8 +59,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(CAMERA_POS - in.world_pos);
 
     // === Three-Point Lighting Setup ===
-    // Key light: Main light source (warm, from front-right-top)
-    let key_light_dir = normalize(vec3<f32>(0.5, 0.8, 0.4));
+    // Key light: Main light source (warm, from front-right)
+    let key_light_dir = normalize(vec3<f32>(0.5, 0.3, 0.8));
     let key_light_color = vec3<f32>(1.0, 0.95, 0.9);  // Slightly warm
 
     // Fill light: Soft fill (cool, from front-left)
