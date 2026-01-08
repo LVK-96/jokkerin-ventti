@@ -16,14 +16,31 @@ describe('Workout State Machine', () => {
         expect(state.workoutTimer).toBe(5);
     });
 
-    it('transitions from Ready to Workout on first tick', () => {
+    it('counts down during Ready phase before transitioning to Workout', () => {
         const state = createInitialState(mockExercises);
-        const { newState, events } = tick(state, mockExercises);
-        
-        expect(newState.phase).toBe(WorkoutPhase.Workout);
-        expect(newState.workoutTimer).toBe(4); // Decremented
-        expect(events).toContainEqual({ type: 'phase_change', phase: WorkoutPhase.Workout });
-        expect(events).toContainEqual({ type: 'start_exercise', exerciseName: 'Ex1' });
+        // pauseTime (Ready phase duration) is now fixed at 10s
+
+        // First tick: pauseTimer 10 -> 9, still Ready
+        let result = tick(state, mockExercises);
+        expect(result.newState.phase).toBe(WorkoutPhase.Ready);
+        expect(result.newState.pauseTimer).toBe(9);
+
+        // Fast forward to near end (pauseTimer = 2)
+        let currentState = result.newState;
+        currentState.pauseTimer = 2;
+
+        // Next tick: pauseTimer 2 -> 1, still Ready
+        result = tick(currentState, mockExercises);
+        expect(result.newState.phase).toBe(WorkoutPhase.Ready);
+        expect(result.newState.pauseTimer).toBe(1);
+        expect(result.events).toContainEqual({ type: 'play_sound', sound: 'almost_start' });
+
+        // Final tick: transitions to Workout
+        result = tick(result.newState, mockExercises);
+        expect(result.newState.phase).toBe(WorkoutPhase.Workout);
+        expect(result.events).toContainEqual({ type: 'phase_change', phase: WorkoutPhase.Workout });
+        expect(result.events).toContainEqual({ type: 'start_exercise', exerciseName: 'Ex1' });
+        expect(result.events).toContainEqual({ type: 'play_sound', sound: 'start' });
     });
 
     it('decrements workout timer and emits sounds', () => {
@@ -68,7 +85,7 @@ describe('Workout State Machine', () => {
         // pauseTimer is 3. 3-1 > 0 is true.
         const result = tick(state, mockExercises);
         state = result.newState;
-        
+
         expect(state.phase).toBe(WorkoutPhase.Rest);
         expect(state.pauseTimer).toBe(2);
         expect(result.events).toContainEqual({ type: 'phase_change', phase: WorkoutPhase.Rest });
@@ -80,21 +97,21 @@ describe('Workout State Machine', () => {
             exerciseIndex: 0,
             setIndex: 1,
             workoutTimer: 0,
-            pauseTimer: 2 // 2-1 > 0 is false? No 1 > 0 is true. 
+            pauseTimer: 2 // 2-1 > 0 is false? No 1 > 0 is true.
             // Logic: `pauseTimer - 1 > 0`. If pauseTimer=2, 1>0 True. -> Rest.
             // If pauseTimer=1. 0>0 False -> New Set.
         };
-        
+
         // Tick to 1
         let result = tick(state, mockExercises);
         state = result.newState;
         expect(state.phase).toBe(WorkoutPhase.Rest);
         expect(state.pauseTimer).toBe(1);
-        
+
         // Tick to Next Set
         result = tick(state, mockExercises);
         state = result.newState;
-        
+
         expect(state.phase).toBe(WorkoutPhase.Workout);
         expect(state.setIndex).toBe(2);
         expect(state.workoutTimer).toBe(5); // Reset

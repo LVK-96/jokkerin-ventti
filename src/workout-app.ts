@@ -63,7 +63,10 @@ export class WorkoutApp {
 
             // Bind inputs
             this.bindKeyboardShortcuts();
-            this.bindSliderToggle();
+
+            // Create settings and FPS buttons
+            this.ui.createSettingsButton();
+            this.ui.createFpsCounter();
 
             // Initial UI update
             this.ui.reset();
@@ -210,7 +213,13 @@ export class WorkoutApp {
 
     private bindKeyboardShortcuts() {
         document.addEventListener('keydown', (event) => {
-            // Only if workout is started (i.e. start button hidden)
+            // FPS toggle works anytime
+            if (event.key === 'f' || event.key === 'F') {
+                this.ui.toggleFps();
+                return;
+            }
+
+            // Other shortcuts only work during workout
             if (!this.ui.isStartButtonHidden()) return;
 
             if (event.key === 'n' || event.key === 'N') {
@@ -222,15 +231,7 @@ export class WorkoutApp {
         });
     }
 
-    private bindSliderToggle() {
-        document.addEventListener('mouseup', () => {
-            // Sync local var with UI state if needed, but UIController tells us truth
-            if (!this.ui.isStartButtonHidden()) return;
 
-            // Toggle
-            this.ui.toggleTextSizeSlider();
-        });
-    }
 
     // --- Wake Lock ---
 

@@ -21,6 +21,8 @@ export type WorkoutEvent =
     | { type: 'phase_change', phase: WorkoutPhase }
     | { type: 'finished' };
 
+const READY_PHASE_DURATION = 10; // seconds before first exercise starts
+
 export function createInitialState(exercises: Exercise[]): WorkoutState {
     if (exercises.length === 0) {
         return {
@@ -37,7 +39,7 @@ export function createInitialState(exercises: Exercise[]): WorkoutState {
         exerciseIndex: 0,
         setIndex: 1,
         workoutTimer: exercises[0].workoutTime,
-        pauseTimer: exercises[0].pauseTime
+        pauseTimer: READY_PHASE_DURATION
     };
 }
 
@@ -65,12 +67,26 @@ export function tick(state: WorkoutState, exercises: Exercise[]): { newState: Wo
     // else if (pauseTimer - 1 > 0 && ...) -> Rest
     // else -> New Set (increment set, reset timers)
 
-    // Handling the "Ready" phase transition to "Workout" for the very first tick?
+    // Handle the "Ready" phase - countdown before first exercise starts
+    // This uses pauseTimer like the Rest phase
     if (newState.phase === WorkoutPhase.Ready) {
-        // Initial transition
-        newState.phase = WorkoutPhase.Workout;
-        events.push({ type: 'phase_change', phase: WorkoutPhase.Workout });
-        events.push({ type: 'start_exercise', exerciseName: currentExercise.name });
+        if (newState.pauseTimer > 1) {
+            // Countdown in progress
+            newState.pauseTimer--;
+
+            // Sound logic (same as Rest phase)
+            if (newState.pauseTimer <= 3 && newState.pauseTimer > 0) {
+                events.push({ type: 'play_sound', sound: 'almost_start' });
+            }
+            return { newState, events };
+        } else {
+            // Countdown finished - transition to Workout
+            newState.phase = WorkoutPhase.Workout;
+            events.push({ type: 'play_sound', sound: 'start' });
+            events.push({ type: 'phase_change', phase: WorkoutPhase.Workout });
+            events.push({ type: 'start_exercise', exerciseName: currentExercise.name });
+            return { newState, events };
+        }
     }
 
     if (newState.workoutTimer > 0) {
@@ -81,7 +97,7 @@ export function tick(state: WorkoutState, exercises: Exercise[]): { newState: Wo
         }
 
         // Check for sounds before decrementing (based on original logic order, actually original logic decrements then checks)
-        // Original: 
+        // Original:
         // 1. Dec/State update
         // 2. updateSound() -> checks CURRENT state/timer
 
@@ -110,12 +126,8 @@ export function tick(state: WorkoutState, exercises: Exercise[]): { newState: Wo
             }
         }
 
-    } else if (newState.pauseTimer - 1 > 0 && newState.exerciseIndex < exercises.length - 1) {
+    } else if ((newState.pauseTimer > 0) && newState.exerciseIndex < exercises.length - 1) {
         // In Rest Phase
-        // Note: The condition `pauseTimer - 1 > 0` implies we stop resting when pauseTimer is 1?
-        // Original: `else if (pauseTimer - 1 > 0 && ...)` -> `pauseTimer--; state = STATE_REST`
-        // So if pauseTimer is 2, 2-1 > 0 is true, decrement to 1, state=Rest.
-        // If pauseTimer is 1, 1-1 > 0 is false, fall through to New Set.
 
         if (newState.phase !== WorkoutPhase.Rest) {
             newState.phase = WorkoutPhase.Rest;
