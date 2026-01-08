@@ -8,14 +8,17 @@
     "dev:watch": "concurrently -k \"npm run watch:wasm\" \"vite\"",
     "watch:wasm": "cd wasm && cargo watch -s \"npm run build:wasm\"",
     "build": "npm run build:wasm:prod && tsc && vite build",
-    "build:wasm": "npm run _wasm_build -- --dev",
-    "build:wasm:prod": "npm run _wasm_build -- --release",
-    "_wasm_build": "cd wasm && RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --target web --out-dir pkg --features portable_simd",
+    "build:wasm": "cd wasm && RUSTFLAGS=\"$npm_package_config_rust_flags\" rustup run nightly wasm-pack build --dev $npm_package_config_wasm_args",
+    "build:wasm:prod": "cd wasm && RUSTFLAGS=\"$npm_package_config_rust_flags\" rustup run nightly wasm-pack build --release $npm_package_config_wasm_args",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage",
     "lint": "eslint ."
+  },
+  "config": {
+    "wasm_args": "--target web --out-dir pkg --features portable_simd",
+    "rust_flags": "-C target-feature=+relaxed-simd"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.50.1",
