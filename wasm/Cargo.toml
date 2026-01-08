@@ -41,6 +41,13 @@ features = ["console", "Window", "Document", "HtmlCanvasElement", "Performance"]
 opt-level = 3
 lto = true
 
+[profile.dev]
+opt-level = 1
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = false
+
+
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

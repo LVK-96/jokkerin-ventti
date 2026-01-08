@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run build:wasm && vite",
     "dev:watch": "concurrently -k \"npm run watch:wasm\" \"vite\"",
-    "watch:wasm": "cd wasm && cargo watch -s 'RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --target web --out-dir pkg --features portable_simd'",
+    "watch:wasm": "cd wasm && cargo watch -s 'RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --dev --target web --out-dir pkg --features portable_simd'",
     "build": "npm run build:wasm && tsc && vite build",
     "build:wasm": "cd wasm && RUSTFLAGS=\"-C target-feature=+relaxed-simd\" rustup run nightly wasm-pack build --target web --out-dir pkg --features portable_simd",
     "preview": "vite preview",
