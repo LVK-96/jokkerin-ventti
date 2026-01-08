@@ -13,6 +13,10 @@ const SKY_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// MSAA sample count (4x anti-aliasing)
+/// Use 1 to disable, 4 for high quality
+const MSAA_SAMPLE_COUNT: u32 = 4;
+
 /// WGSL Uniform struct
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -45,6 +49,7 @@ pub struct GpuContext {
     pub config: wgpu::SurfaceConfiguration,
     // Render pipelines
     pub skeleton_pipeline: wgpu::RenderPipeline,
+    pub shadow_pipeline: wgpu::RenderPipeline,
     pub grid_pipeline: wgpu::RenderPipeline,
     // GPU Buffers
     pub vertex_buffer: wgpu::Buffer,
@@ -53,6 +58,9 @@ pub struct GpuContext {
     // Depth texture
     pub depth_texture: wgpu::Texture,
     pub depth_view: wgpu::TextureView,
+    // MSAA render target
+    pub msaa_texture: wgpu::Texture,
+    pub msaa_view: wgpu::TextureView,
     // Bind groups
     pub uniform_bind_group: wgpu::BindGroup,
     pub bone_bind_group: wgpu::BindGroup,
@@ -63,6 +71,7 @@ pub struct GpuContext {
 
 /// Shader sources
 const SKELETON_SHADER: &str = include_str!("shaders/skeleton.wgsl");
+const SHADOW_SHADER: &str = include_str!("shaders/shadow.wgsl");
 const GRID_SHADER: &str = include_str!("shaders/grid.wgsl");
 
 fn get_canvas_size(window: &web_sys::Window, canvas: &web_sys::HtmlCanvasElement) -> (u32, u32) {
@@ -195,6 +204,11 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
     let skeleton_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Skeleton Shader"),
         source: wgpu::ShaderSource::Wgsl(SKELETON_SHADER.into()),
+    });
+
+    let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Shadow Shader"),
+        source: wgpu::ShaderSource::Wgsl(SHADOW_SHADER.into()),
     });
 
     let grid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -356,12 +370,81 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLE_COUNT,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         multiview_mask: None,
         cache: None,
     });
 
-    // Create depth texture
+    // Create shadow render pipeline (same vertex layout, different shader with alpha blending)
+    let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Shadow Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shadow_shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<SkinnedVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x3,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 12,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x3,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 24,
+                        shader_location: 2,
+                        format: wgpu::VertexFormat::Uint32,
+                    },
+                ],
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shadow_shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None, // No culling for shadow (visible from both sides when flattened)
+            unclipped_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: false, // Don't write depth (shadow is on floor)
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLE_COUNT,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview_mask: None,
+        cache: None,
+    });
+
+    // Create depth texture with MSAA
     let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Depth Texture"),
         size: wgpu::Extent3d {
@@ -370,13 +453,30 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: MSAA_SAMPLE_COUNT,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth24Plus,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
     let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Create MSAA render target (color)
+    let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("MSAA Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: MSAA_SAMPLE_COUNT,
+        dimension: wgpu::TextureDimension::D2,
+        format: surface_format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Generate bind pose mesh (static)
     let mesh_vertices = generate_bind_pose_mesh();
@@ -450,7 +550,11 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLE_COUNT,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         multiview_mask: None,
         cache: None,
     });
@@ -482,12 +586,15 @@ pub async fn init_gpu(canvas_id: String, force_webgl: bool) -> Result<crate::sta
         surface,
         config,
         skeleton_pipeline,
+        shadow_pipeline,
         grid_pipeline,
         vertex_buffer,
         bone_uniform_buffer,
         uniform_buffer,
         depth_texture,
         depth_view,
+        msaa_texture,
+        msaa_view,
         uniform_bind_group,
         bone_bind_group,
         uniforms,
@@ -537,7 +644,7 @@ impl App {
         gpu.config.height = height;
         gpu.surface.configure(&gpu.device, &gpu.config);
 
-        // Recreate depth texture with new dimensions
+        // Recreate depth texture with new dimensions and MSAA
         let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth_texture"),
             size: wgpu::Extent3d {
@@ -546,7 +653,7 @@ impl App {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth24Plus,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -555,6 +662,26 @@ impl App {
         gpu.depth_texture = depth_texture;
         gpu.depth_view = gpu
             .depth_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Recreate MSAA color texture with new dimensions
+        let msaa_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("msaa_texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLE_COUNT,
+            dimension: wgpu::TextureDimension::D2,
+            format: gpu.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        gpu.msaa_texture = msaa_texture;
+        gpu.msaa_view = gpu
+            .msaa_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Update aspect ratio and projection matrix
@@ -635,11 +762,12 @@ impl App {
             });
 
         {
+            // MSAA: Render to msaa_view, resolve to surface view
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Skeleton Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: &gpu.msaa_view,        // Render to MSAA texture
+                    resolve_target: Some(&view), // Resolve to surface
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(SKY_COLOR),
                         store: wgpu::StoreOp::Store,
@@ -664,6 +792,13 @@ impl App {
             // Grid uses uniform bind group at index 0
             render_pass.set_bind_group(0, &gpu.uniform_bind_group, &[]);
             render_pass.draw(0..6, 0..1);
+
+            // Draw drop shadow (before skeleton so it appears under the character)
+            render_pass.set_pipeline(&gpu.shadow_pipeline);
+            render_pass.set_bind_group(0, &gpu.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &gpu.bone_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, gpu.vertex_buffer.slice(..));
+            render_pass.draw(0..gpu.vertex_count, 0..1);
 
             // Draw skinned mesh
             render_pass.set_pipeline(&gpu.skeleton_pipeline);

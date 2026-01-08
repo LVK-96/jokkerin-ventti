@@ -57,82 +57,87 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);
     let view_dir = normalize(CAMERA_POS - in.world_pos);
 
-    // === Light Setup ===
-    let light_dir = normalize(vec3<f32>(0.4, 0.7, 0.5));
-    let back_light_dir = -light_dir; // For transmittance
+    // === Three-Point Lighting Setup ===
+    // Key light: Main light source (warm, from front-right-top)
+    let key_light_dir = normalize(vec3<f32>(0.5, 0.8, 0.4));
+    let key_light_color = vec3<f32>(1.0, 0.95, 0.9);  // Slightly warm
 
-    // ============================================
-    // SUBSURFACE SCATTERING APPROXIMATION
-    // ============================================
-    // Reference: GPU Gems 3, "Real-Time Approximations to Subsurface Scattering"
+    // Fill light: Soft fill (cool, from front-left)
+    let fill_light_dir = normalize(vec3<f32>(-0.4, 0.3, 0.5));
+    let fill_light_color = vec3<f32>(0.7, 0.8, 1.0);  // Cool blue tint
 
-    // --- Wrap Diffuse ---
-    // Softens the terminator (light/dark boundary) like real skin/wax
-    let wrap = 0.5;  // How much light wraps around the surface
-    let ndotl_raw = dot(normal, light_dir);
-    let ndotl_wrap = (ndotl_raw + wrap) / (1.0 + wrap);
-    let diffuse = max(ndotl_wrap, 0.0);
+    // Rim/Back light: Edge highlight (from behind)
+    let rim_light_dir = normalize(vec3<f32>(-0.2, 0.4, -0.8));
+    let rim_light_color = vec3<f32>(1.0, 1.0, 1.0);  // Pure white
 
-    // --- Transmittance (Light passing through) ---
-    // Simulates light entering the back and scattering through
+    // === Wrap Diffuse (for softer terminator) ===
+    let wrap = 0.3;
+
+    // Key light contribution (strongest)
+    let key_ndotl = dot(normal, key_light_dir);
+    let key_wrap = (key_ndotl + wrap) / (1.0 + wrap);
+    let key_diffuse = max(key_wrap, 0.0) * 0.7;
+
+    // Fill light contribution (softer)
+    let fill_ndotl = max(dot(normal, fill_light_dir), 0.0);
+    let fill_diffuse = fill_ndotl * 0.25;
+
+    // === Subsurface Scattering Approximation ===
+    // Light passing through thin areas
     let transmittance_power = 3.0;
-    let transmittance_scale = 0.6;
-    let vdotl = dot(view_dir, -light_dir);  // View aligned with light = more transmission
-    let transmittance = pow(saturate(vdotl), transmittance_power) * transmittance_scale;
+    let vdotl = dot(view_dir, -key_light_dir);
+    let transmittance = pow(saturate(vdotl), transmittance_power) * 0.5;
 
-    // --- Thickness approximation from curvature ---
-    // Convex surfaces (spheres) appear thinner at edges
+    // Thickness from curvature (edges = thin)
     let ndotv = max(dot(normal, view_dir), 0.0);
-    let thickness = pow(ndotv, 0.8);  // Center = thick, edges = thin
+    let thickness = pow(ndotv, 0.8);
 
-    // SSS color - light that scatters takes on material color
-    // Using a subtle warm/red tint like subsurface blood or internal glow
-    // Linear values (will be gamma corrected)
-    let sss_color = vec3<f32>(0.02, 0.006, 0.003);  // Deep warm glow (linear)
+    // SSS color (warm internal glow)
+    let sss_color = vec3<f32>(0.02, 0.006, 0.003);
     let sss_intensity = transmittance * (1.0 - thickness) * 0.8;
 
-    // --- Fresnel Rim (edge glow) ---
+    // === Rim Lighting (Fresnel-based + back light) ===
     let fresnel = pow(1.0 - ndotv, 3.0);
-    let rim_color = vec3<f32>(0.012, 0.02, 0.055);  // Cool blue edge (linear)
-    let rim = fresnel * 0.4;
+    let back_light = max(dot(normal, rim_light_dir), 0.0);
+    let rim_fresnel = fresnel * 0.35;
+    let rim_back = back_light * fresnel * 0.2;
 
-    // --- Specular (tight highlight) ---
-    let half_vec = normalize(light_dir + view_dir);
+    // === Specular Highlight (Blinn-Phong on key light) ===
+    let half_vec = normalize(key_light_dir + view_dir);
     let ndoth = max(dot(normal, half_vec), 0.0);
-    let specular = pow(ndoth, 80.0) * 0.7;
+    let specular = pow(ndoth, 80.0) * 0.6;
 
-    // === Color Palette ===
-    // Base color: very dark (nearly black with subtle blue)
-    // These are LINEAR values that will be gamma-corrected later.
-    // To get sRGB ~0.02 after gamma, we need linear ~0.0003 (pow(0.02, 2.2))
+    // === Base Color ===
+    // Very dark with subtle blue tint (linear space)
     let base_color = vec3<f32>(0.0003, 0.0003, 0.0006);
 
     // === Final Composition ===
     var lit_color = base_color;
 
-    // Diffuse contribution (subtle, keeps it dark)
-    lit_color += base_color * diffuse * 0.3;
+    // Key light (warm, dominant)
+    lit_color += base_color * key_diffuse * key_light_color;
 
-    // SSS glow (the magic - internal light scattering)
+    // Fill light (cool, subtle)
+    lit_color += base_color * fill_diffuse * fill_light_color;
+
+    // SSS glow (warm internal scattering)
     lit_color += sss_color * sss_intensity;
 
-    // Rim light (Fresnel edge)
-    lit_color += rim_color * rim;
+    // Rim lighting (edge definition)
+    let rim_color = vec3<f32>(0.012, 0.02, 0.055);  // Cool blue edge
+    lit_color += rim_color * rim_fresnel;
+    lit_color += rim_light_color * rim_back * 0.1;
 
     // Specular highlight
     lit_color += vec3<f32>(0.8, 0.85, 1.0) * specular;
 
-    // Tone mapping (preserve contrast)
+    // Tone mapping (Reinhard-style)
     lit_color = lit_color / (lit_color + vec3<f32>(0.3));
 
-    // Manual gamma correction (linear to sRGB)
-    // This ensures consistent colors whether the surface format is sRGB or linear.
-    // sRGB gamma is approximately pow(x, 1/2.2), but the exact formula is:
-    // x <= 0.0031308: 12.92 * x
-    // x > 0.0031308: 1.055 * pow(x, 1/2.4) - 0.055
-    // For simplicity and performance, we use the approximation.
+    // Gamma correction (linear to sRGB)
     let gamma = 1.0 / 2.2;
     let gamma_corrected = pow(lit_color, vec3<f32>(gamma));
 
     return vec4<f32>(gamma_corrected, 1.0);
 }
+
