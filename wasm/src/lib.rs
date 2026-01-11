@@ -14,8 +14,6 @@ pub use bone::AnimationId;
 pub mod camera;
 
 #[cfg(target_arch = "wasm32")]
-pub mod editor;
-#[cfg(target_arch = "wasm32")]
 pub mod gpu;
 pub mod ik;
 mod math;
@@ -44,25 +42,7 @@ pub use math::Mat4;
 pub use math::Mat4Extended;
 
 use crate::animation::{sample_animation, AnimationLibrary, PlaybackState};
-#[cfg(target_arch = "wasm32")]
-use crate::bone::RotationPose;
 use crate::skeleton::RENDER_BONE_COUNT;
-
-/// Compute bone matrices from an editor session's current keyframe
-#[cfg(target_arch = "wasm32")]
-pub fn compute_matrices_from_session(
-    session: &state::EditorSession,
-) -> [glam::Mat4; RENDER_BONE_COUNT] {
-    let pose = session
-        .clip
-        .keyframes
-        .get(session.keyframe_index)
-        .map(|kf| kf.pose.clone())
-        .unwrap_or_else(RotationPose::bind_pose);
-
-    let pose = pose.apply_floor_constraint();
-    pose.compute_bone_matrices()
-}
 
 /// Compute bone matrices from animation playback state
 pub fn compute_matrices_from_playback(
@@ -78,17 +58,8 @@ pub fn compute_matrices_from_playback(
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl App {
-    /// Update skeleton from the active editor session
-    /// Call this every frame before render_frame() when editing
-    pub fn update_skeleton_from_session(&self) {
-        if let Some(session) = self.state.editor() {
-            let matrices = compute_matrices_from_session(session);
-            self.update_bone_uniforms(&matrices);
-        }
-    }
-
-    /// Update skeleton from the current animation playback state
-    /// Call this every frame before render_frame() for non-editor mode
+    /// Update skeleton from the current animation playback state.
+    /// Call this every frame before render_frame().
     pub fn update_skeleton_from_playback(&self) {
         let matrices =
             compute_matrices_from_playback(&self.state.animation_library, &self.state.playback);

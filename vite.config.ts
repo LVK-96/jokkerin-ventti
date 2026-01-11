@@ -24,7 +24,6 @@ export default defineConfig({
             input: {
                 main: './index.html',
                 benchmarks: './benchmarks/index.html',
-                editor: './editor/index.html',
             },
         },
     },
@@ -53,20 +52,6 @@ export default defineConfig({
                     // Handle /jokkerin-ventti/benchmarks (missing trailing slash)
                     if (url === '/jokkerin-ventti/benchmarks') {
                         res.writeHead(301, { Location: '/jokkerin-ventti/benchmarks/' });
-                        res.end();
-                        return;
-                    }
-
-                    // Redirect /editor to /jokkerin-ventti/editor/
-                    if (url === '/editor' || url === '/editor/') {
-                        res.writeHead(301, { Location: '/jokkerin-ventti/editor/' });
-                        res.end();
-                        return;
-                    }
-
-                    // Handle /jokkerin-ventti/editor (missing trailing slash)
-                    if (url === '/jokkerin-ventti/editor') {
-                        res.writeHead(301, { Location: '/jokkerin-ventti/editor/' });
                         res.end();
                         return;
                     }

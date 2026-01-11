@@ -12,12 +12,7 @@
 use crate::animation::{AnimationLibrary, PlaybackState};
 use crate::camera::Camera;
 use crate::gpu::GpuContext;
-
-/// Editor session data - editing state for a single animation clip
-pub struct EditorSession {
-    pub clip: crate::bone::RotationAnimationClip,
-    pub keyframe_index: usize,
-}
+use wasm_bindgen::prelude::*;
 
 /// Functions should take explicit references to what they need, not access
 /// this struct directly via globals.
@@ -30,8 +25,6 @@ pub struct AppState {
     pub playback: PlaybackState,
     /// Camera orientation and distance
     pub camera: Camera,
-    /// Active editor session (singleton - only one at a time)
-    pub editor_session: Option<EditorSession>,
 }
 
 impl AppState {
@@ -43,35 +36,9 @@ impl AppState {
             animation_library: AnimationLibrary::new(),
             playback: PlaybackState::default(),
             camera: Camera::default(),
-            editor_session: None,
         }
     }
-
-    /// Start editing an animation clip
-    pub fn start_editing(&mut self, clip: crate::bone::RotationAnimationClip) {
-        self.editor_session = Some(EditorSession {
-            clip,
-            keyframe_index: 0,
-        });
-    }
-
-    /// Stop editing (clear current session)
-    pub fn stop_editing(&mut self) {
-        self.editor_session = None;
-    }
-
-    /// Get mutable reference to current editor session
-    pub fn editor_mut(&mut self) -> Option<&mut EditorSession> {
-        self.editor_session.as_mut()
-    }
-
-    /// Get immutable reference to current editor session
-    pub fn editor(&self) -> Option<&EditorSession> {
-        self.editor_session.as_ref()
-    }
 }
-
-use wasm_bindgen::prelude::*;
 
 /// JavaScript-owned application handle.
 ///
