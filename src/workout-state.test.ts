@@ -69,9 +69,22 @@ describe('Workout State Machine', () => {
         result = tick(state, mockExercises);
         state = result.newState;
         expect(state.workoutTimer).toBe(1);
-        // Note: 'pause' sound usually emitted at 0. Since we skip 0, we might miss it unless logic handled.
-        // Current logic: if workoutTimer > 1 (FALSE at 1).
-        // Then transition.
+        expect(result.events).toContainEqual({ type: 'play_sound', sound: 'almost_pause' });
+    });
+
+    it('transitions to Rest when workout timer is 1', () => {
+        // Initial state: Workout phase, timer at 1
+        let state = createInitialState(mockExercises);
+        state.phase = WorkoutPhase.Workout;
+        state.workoutTimer = 1;
+
+        // Tick: 1 -> Rest
+        const result = tick(state, mockExercises);
+        state = result.newState;
+
+        expect(state.phase).toBe(WorkoutPhase.Rest);
+        expect(result.events).toContainEqual({ type: 'phase_change', phase: WorkoutPhase.Rest });
+        expect(result.events).toContainEqual({ type: 'play_sound', sound: 'pause' });
     });
 
     it('transitions to Rest when workout timer is 1', () => {
@@ -169,5 +182,37 @@ describe('Workout State Machine', () => {
 
         expect(state.phase).toBe(WorkoutPhase.Finished);
         expect(result.events).toContainEqual({ type: 'finished' });
+    });
+
+    it('bug reproduction: ensures first rest is not skipped', () => {
+        // Initial state: Ready phase
+        let state = createInitialState(mockExercises);
+        // Ex1 has pauseTime: 3
+
+        // Fast forward Ready phase to 1
+        state.pauseTimer = 1;
+
+        // Tick 1: Ready -> Workout
+        let result = tick(state, mockExercises);
+        state = result.newState;
+        expect(state.phase).toBe(WorkoutPhase.Workout);
+
+        // Verify pauseTimer is reset to Ex1.pauseTime (3)
+        // This is crucial: if it remains 1, the subsequent Rest phase will be skipped
+        expect(state.pauseTimer).toBe(3); 
+
+        // Fast forward Workout to 1 (end of workout)
+        state.workoutTimer = 1;
+
+        // Tick 2: Workout -> Rest
+        result = tick(state, mockExercises);
+        state = result.newState;
+        expect(state.phase).toBe(WorkoutPhase.Rest);
+
+        // Tick 3: Rest logic
+        // Should NOT skip rest immediately
+        result = tick(state, mockExercises);
+        state = result.newState;
+        expect(state.phase).toBe(WorkoutPhase.Rest);
     });
 });

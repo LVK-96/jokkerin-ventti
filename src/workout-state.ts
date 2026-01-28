@@ -84,6 +84,7 @@ function handleReadyTick(state: WorkoutState, exercises: Exercise[]): TickResult
     } else {
         // Countdown finished - transition to Workout
         newState.phase = WorkoutPhase.Workout;
+        newState.pauseTimer = currentExercise.pauseTime;
         events.push({ type: 'play_sound', sound: 'start' });
         events.push({ type: 'phase_change', phase: WorkoutPhase.Workout });
         events.push({ type: 'start_exercise', exerciseName: currentExercise.name });
@@ -106,9 +107,7 @@ function handleWorkoutTick(state: WorkoutState, exercises: Exercise[]): TickResu
         newState.workoutTimer--;
 
         // Sounds
-        if (newState.workoutTimer === 0) {
-            events.push({ type: 'play_sound', sound: 'pause' });
-        } else if (newState.workoutTimer <= 3 && newState.workoutTimer > 0) {
+        if (newState.workoutTimer <= 3 && newState.workoutTimer >= 1) {
             events.push({ type: 'play_sound', sound: 'almost_pause' });
         }
 
@@ -139,6 +138,7 @@ function transitionToRest(state: WorkoutState): TickResult {
 
     newState.phase = WorkoutPhase.Rest;
     events.push({ type: 'phase_change', phase: WorkoutPhase.Rest });
+    events.push({ type: 'play_sound', sound: 'pause' });
     return { newState, events };
 }
 

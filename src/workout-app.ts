@@ -63,6 +63,8 @@ export class WorkoutApp {
 
             // Bind inputs
             this.bindKeyboardShortcuts();
+            this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+            document.addEventListener("visibilitychange", this.handleVisibilityChange);
 
             // Create settings and FPS buttons
             this.ui.createSettingsButton();
@@ -237,9 +239,21 @@ export class WorkoutApp {
 
     private async requestWakeLock(): Promise<void> {
         try {
-            this.wakeLock = await navigator.wakeLock.request('screen');
+            if ('wakeLock' in navigator) {
+                this.wakeLock = await navigator.wakeLock.request('screen');
+                this.wakeLock.addEventListener('release', () => {
+                    console.log('Screen Wake Lock released:', this.wakeLock?.released);
+                });
+                console.log('Screen Wake Lock acquired');
+            }
         } catch (err) {
             console.error(`Error while acquiring wake lock: ${err}`);
+        }
+    }
+
+    private async handleVisibilityChange(): Promise<void> {
+        if (this.wakeLock !== null && document.visibilityState === 'visible') {
+             await this.requestWakeLock();
         }
     }
 
