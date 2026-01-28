@@ -21,16 +21,16 @@
     "rust_flags": "-C target-feature=+relaxed-simd"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.50.1",
-    "@typescript-eslint/parser": "^8.50.1",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.2",
     "jsdom": "^27.4.0",
     "typescript": "latest",
-    "vite": "latest",
+    "vite": "^7.3.1",
     "vite-plugin-wasm-pack": "^0.1.12",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=20"
