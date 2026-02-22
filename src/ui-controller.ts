@@ -1,5 +1,6 @@
 import { Exercise } from './types';
 import { WorkoutState, WorkoutPhase } from './workout-state';
+import { calculateBottomObstructionInset } from './viewport-insets';
 
 export class UIController {
     // Elements
@@ -13,6 +14,7 @@ export class UIController {
     private exerciseNameEl: HTMLElement | null;
     private setCountEl: HTMLElement | null;
     private textSizeSlider: HTMLInputElement | null;
+    private updateBottomInsetHandler: () => void;
 
     // State for text resizing
     private elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
@@ -28,14 +30,40 @@ export class UIController {
         this.exerciseNameEl = document.getElementById('exercise-name');
         this.setCountEl = document.getElementById('set-count');
         this.textSizeSlider = document.getElementById('textSizeSlider') as HTMLInputElement;
+        this.updateBottomInsetHandler = () => this.updateBottomInset();
 
         this.initTextResizing();
+        this.initViewportInsets();
     }
 
     private initTextResizing() {
         if (this.textSizeSlider) {
             this.textSizeSlider.addEventListener('input', () => this.updateTextSize());
         }
+    }
+
+    private initViewportInsets() {
+        this.updateBottomInset();
+        window.addEventListener('resize', this.updateBottomInsetHandler);
+
+        const visualViewport = window.visualViewport;
+        if (!visualViewport) return;
+
+        visualViewport.addEventListener('resize', this.updateBottomInsetHandler);
+        visualViewport.addEventListener('scroll', this.updateBottomInsetHandler);
+    }
+
+    private updateBottomInset() {
+        const visualViewport = window.visualViewport;
+        const bottomInset = visualViewport
+            ? calculateBottomObstructionInset(
+                window.innerHeight,
+                visualViewport.height,
+                visualViewport.offsetTop
+            )
+            : 0;
+
+        document.documentElement.style.setProperty('--bottom-obstruction-inset', `${bottomInset}px`);
     }
 
     public attachStartHandler(handler: () => void) {
@@ -252,7 +280,7 @@ export class UIController {
         this.settingsButton.id = 'settings-button';
         this.settingsButton.style.cssText = `
             position: fixed;
-            bottom: 8px;
+            bottom: calc(8px + var(--bottom-ui-offset));
             right: 8px;
             background: rgba(0, 0, 0, 0.6);
             color: white;
@@ -282,7 +310,7 @@ export class UIController {
         this.fpsElement.id = 'fps-counter';
         this.fpsElement.style.cssText = `
             position: fixed;
-            bottom: 8px;
+            bottom: calc(8px + var(--bottom-ui-offset));
             right: 48px;
             background: rgba(0, 0, 0, 0.6);
             color: #ffcc00;
