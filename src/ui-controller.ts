@@ -1,6 +1,6 @@
 import { Exercise } from './types';
 import { WorkoutState, WorkoutPhase } from './workout-state';
-import { calculateBottomObstructionInset } from './viewport-insets';
+import { calculateEffectiveBottomInset } from './viewport-insets';
 
 export class UIController {
     // Elements
@@ -15,6 +15,7 @@ export class UIController {
     private setCountEl: HTMLElement | null;
     private textSizeSlider: HTMLInputElement | null;
     private updateBottomInsetHandler: () => void;
+    private readonly isAndroidDevice: boolean;
 
     // State for text resizing
     private elementsWithText: Array<{ element: HTMLElement; originalSize: number }> = [];
@@ -31,6 +32,7 @@ export class UIController {
         this.setCountEl = document.getElementById('set-count');
         this.textSizeSlider = document.getElementById('textSizeSlider') as HTMLInputElement;
         this.updateBottomInsetHandler = () => this.updateBottomInset();
+        this.isAndroidDevice = /Android/i.test(navigator.userAgent);
 
         this.initTextResizing();
         this.initViewportInsets();
@@ -45,6 +47,7 @@ export class UIController {
     private initViewportInsets() {
         this.updateBottomInset();
         window.addEventListener('resize', this.updateBottomInsetHandler);
+        document.addEventListener('fullscreenchange', this.updateBottomInsetHandler);
 
         const visualViewport = window.visualViewport;
         if (!visualViewport) return;
@@ -55,15 +58,20 @@ export class UIController {
 
     private updateBottomInset() {
         const visualViewport = window.visualViewport;
-        const bottomInset = visualViewport
-            ? calculateBottomObstructionInset(
-                window.innerHeight,
-                visualViewport.height,
-                visualViewport.offsetTop
-            )
-            : 0;
+        const bottomInset = calculateEffectiveBottomInset({
+            layoutViewportHeight: window.innerHeight,
+            isAndroid: this.isAndroidDevice,
+            isFullscreen: this.isFullscreenActive(),
+            ...(visualViewport
+                ? {
+                    visualViewportHeight: visualViewport.height,
+                    visualViewportOffsetTop: visualViewport.offsetTop
+                }
+                : {})
+        });
 
         document.documentElement.style.setProperty('--bottom-obstruction-inset', `${bottomInset}px`);
+        this.syncFullscreenButtonState();
     }
 
     public attachStartHandler(handler: () => void) {
@@ -267,9 +275,10 @@ export class UIController {
         return this.startButton ? this.startButton.hidden : true;
     }
 
-    // --- System UI (Settings & FPS) ---
+    // --- System UI (Settings, Fullscreen & FPS) ---
 
     private settingsButton: HTMLElement | null = null;
+    private fullscreenButton: HTMLElement | null = null;
     private fpsElement: HTMLElement | null = null;
     private fpsVisible = false;
 
@@ -311,7 +320,7 @@ export class UIController {
         this.fpsElement.style.cssText = `
             position: fixed;
             bottom: calc(8px + var(--bottom-ui-offset));
-            right: 48px;
+            right: 88px;
             background: rgba(0, 0, 0, 0.6);
             color: #ffcc00;
             font-family: monospace;
@@ -331,6 +340,70 @@ export class UIController {
         });
 
         document.body.appendChild(this.fpsElement);
+    }
+
+    public createFullscreenButton() {
+        if (this.fullscreenButton) return;
+
+        this.fullscreenButton = document.createElement('div');
+        this.fullscreenButton.id = 'fullscreen-button';
+        this.fullscreenButton.style.cssText = `
+            position: fixed;
+            bottom: calc(8px + var(--bottom-ui-offset));
+            right: 48px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            font-family: monospace;
+            font-size: 18px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 9999;
+            user-select: none;
+        `;
+        this.syncFullscreenButtonState();
+
+        this.fullscreenButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            void this.toggleFullscreen();
+        });
+
+        document.body.appendChild(this.fullscreenButton);
+    }
+
+    private isFullscreenActive(): boolean {
+        const docWithWebkit = document as Document & { webkitFullscreenElement?: Element | null };
+        return Boolean(document.fullscreenElement || docWithWebkit.webkitFullscreenElement);
+    }
+
+    private syncFullscreenButtonState() {
+        if (!this.fullscreenButton) return;
+        const isActive = this.isFullscreenActive();
+        this.fullscreenButton.textContent = isActive ? '🗗' : '⛶';
+        this.fullscreenButton.title = isActive ? 'Exit fullscreen' : 'Enter fullscreen';
+    }
+
+    private async toggleFullscreen() {
+        const docWithWebkit = document as Document & { webkitExitFullscreen?: () => Promise<void> | void };
+        const rootWithWebkit = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+
+        try {
+            if (this.isFullscreenActive()) {
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (docWithWebkit.webkitExitFullscreen) {
+                    await docWithWebkit.webkitExitFullscreen();
+                }
+            } else if (rootWithWebkit.requestFullscreen) {
+                await rootWithWebkit.requestFullscreen({ navigationUI: 'hide' });
+            } else if (rootWithWebkit.webkitRequestFullscreen) {
+                await rootWithWebkit.webkitRequestFullscreen();
+            }
+        } catch (error) {
+            console.warn('Fullscreen toggle failed:', error);
+        }
+
+        this.updateBottomInset();
     }
 
     public setFpsVisible(visible: boolean) {

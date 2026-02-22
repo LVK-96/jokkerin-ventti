@@ -66,8 +66,9 @@ export class WorkoutApp {
             this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
             document.addEventListener("visibilitychange", this.handleVisibilityChange);
 
-            // Create settings and FPS buttons
+            // Create settings, fullscreen and FPS buttons
             this.ui.createSettingsButton();
+            this.ui.createFullscreenButton();
             this.ui.createFpsCounter();
 
             // Initial UI update
